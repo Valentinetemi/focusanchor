@@ -1,0 +1,23 @@
+{
+  "name": "focusanchor",
+  "version": "0.1.0",
+  "description": "Park distracting tabs with a reason and recover the context later.",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^31.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "private": true
+}

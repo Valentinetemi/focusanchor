@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "FocusAnchor",
+  "version": "0.1.0",
+  "description": "Close the tab. Keep the thought.",
+  "permissions": ["activeTab", "storage"],
+  "incognito": "not_allowed",
+  "action": { "default_popup": "index.html", "default_title": "FocusAnchor" },
+  "background": { "service_worker": "background.js", "type": "module" }
+}
