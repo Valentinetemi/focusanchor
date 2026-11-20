@@ -16,7 +16,7 @@ The popup screenshot shows the full layout. In Chrome the popup is about 600 pix
 
 ## Install locally
 
-Use a current version of Chrome and Node.js 22 or newer.
+Use a current version of Chrome and Node.js 22.22.2 or newer.
 
 ```sh
 npm ci

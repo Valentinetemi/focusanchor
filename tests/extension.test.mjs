@@ -42,10 +42,12 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   const tabs = new Map([[1, missionTab], [2, keptTab], [4, closedTab]]);
   const changes = new Set();
   const removedHandlers = new Set();
+  const updatedHandlers = new Set();
   const tabUpdates = [];
   const windowUpdates = [];
   const notifications = [];
   let stored = {};
+  let session = {};
   let messageHandler;
   let activationHandler;
   let rejectWrite = false;
@@ -74,6 +76,10 @@ await test('notes can keep tabs open, close safely, update, and open without dup
           stored = structuredClone(data);
           for (const fn of changes) fn({ focusAnchor: { newValue: stored.focusAnchor } }, 'local');
         },
+      },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
       },
     },
     notifications: {
@@ -116,6 +122,10 @@ await test('notes can keep tabs open, close safely, update, and open without dup
         addListener: (fn) => { removedHandlers.add(fn); },
         removeListener: (fn) => { removedHandlers.delete(fn); },
       },
+      onUpdated: {
+        addListener: (fn) => { updatedHandlers.add(fn); },
+        removeListener: (fn) => { updatedHandlers.delete(fn); },
+      },
     },
     windows: {
       update: async (id, properties) => {
@@ -135,6 +145,16 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   assert.equal(missing.error, 'This tab is no longer open. Open FocusAnchor again to save the current page.');
   assert.equal(stored.focusAnchor, undefined);
 
+  const getTab = globalThis.chrome.tabs.get;
+  globalThis.chrome.tabs.get = async () => { throw new Error('Tabs are unavailable'); };
+  const transient = await send({
+    type: 'save', tabId: 2, url: keptTab.url, note: 'Keep this draft', close: false,
+  });
+  globalThis.chrome.tabs.get = getTab;
+  assert.equal(transient.ok, false);
+  assert.equal(transient.error, 'Tabs are unavailable');
+  assert.equal(stored.focusAnchor, undefined);
+
   assert.equal((await send({ type: 'start', text: 'Finish my submission' })).ok, true);
   activate(2);
   await eventually(() => stored.focusAnchor.mission.tabSwitches === 1);
@@ -152,7 +172,6 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     note: firstNote,
     mission: 'Finish my submission',
     status: 'kept-open',
-    tabId: 2,
   });
 
   const originalId = stored.focusAnchor.parked[0].id;
@@ -164,7 +183,6 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   assert.equal(stored.focusAnchor.parked[0].id, originalId);
   assert.equal(stored.focusAnchor.parked[0].note, updatedNote);
   assert.equal(stored.focusAnchor.parked[0].mission, 'Finish my submission');
-  assert.equal(stored.focusAnchor.parked[0].tabId, 2);
 
   activate(4);
   const closeCommand = {
@@ -184,7 +202,6 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   assert.equal(tabs.has(4), false);
   assert.equal(stored.focusAnchor.parked.length, 2);
   assert.deepEqual(stored.focusAnchor.parked.map(({ status }) => status).sort(), ['closed', 'kept-open']);
-  assert.equal(stored.focusAnchor.parked.find((item) => item.url === closedTab.url).tabId, null);
 
   const keptId = stored.focusAnchor.parked.find((item) => item.url === keptTab.url).id;
   const closedId = stored.focusAnchor.parked.find((item) => item.url === closedTab.url).id;
@@ -211,14 +228,20 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     assert.match(timer.textContent.trim(), /^\d+:\d{2}$/);
     assert.match(timer.getAttribute('aria-label'), /\d+ seconds elapsed/);
     assert.doesNotMatch(document.body.textContent, /min elapsed/);
+    const beforeTick = timer.textContent.trim();
+    await eventually(() => document.querySelector('time').textContent.trim() !== beforeTick);
+    assert.match(document.querySelector('time').textContent.trim(), /^\d+:\d{2}$/);
     stored.focusAnchor.mission.startedAt = Date.now() - 3_723_000;
     for (const fn of changes) fn({ focusAnchor: { newValue: structuredClone(stored.focusAnchor) } }, 'local');
     await eventually(() => /^1:02:\d{2}$/.test(document.querySelector('time')?.textContent.trim() ?? ''));
     assert.match(document.querySelector('time').getAttribute('aria-label'), /1 hour 2 minutes \d+ seconds elapsed/);
     assert.ok(document.querySelector('[aria-label="Capybara"]'));
 
+    notifications.length = 0;
     openButton(keptTab.title).click();
-    await eventually(() => tabUpdates.some(({ id }) => id === 2));
+    await eventually(() => notifications.length === 1 && tabUpdates.some(({ id }) => id === 2));
+    assert.equal(notifications[0].title, keptTab.title);
+    assert.equal(notifications[0].message, updatedNote);
     assert.equal(createdTabs, 0);
     assert.deepEqual(windowUpdates.at(-1), { id: 10, focused: true });
 
@@ -226,8 +249,13 @@ await test('notes can keep tabs open, close safely, update, and open without dup
       const button = openButton(closedTab.title);
       return button && !button.disabled;
     });
+    notifications.length = 0;
     openButton(closedTab.title).click();
-    await eventually(() => createdTabs === 1);
+    await eventually(() => createdTabs === 1 && notifications.length === 1);
+    assert.equal(notifications[0].title, closedTab.title);
+    assert.equal(notifications[0].message, 'Cite this after the draft');
+    assert.equal(notifications[0].contextMessage, 'Mission: Finish my submission');
+    assert.ok(notifications[0].iconUrl.endsWith('icons/icon128.png'));
     const reopened = [...tabs.values()].find((tab) => tab.url === closedTab.url);
     assert.ok(reopened);
     await eventually(() => stored.focusAnchor.parked.find((item) => item.id === closedId).status === 'kept-open');
@@ -236,30 +264,51 @@ await test('notes can keep tabs open, close safely, update, and open without dup
       const button = openButton(closedTab.title);
       return button && !button.disabled;
     });
+    notifications.length = 0;
     openButton(closedTab.title).click();
-    await eventually(() => tabUpdates.some(({ id }) => id === reopened.id));
+    await eventually(() => notifications.length === 1 && tabUpdates.some(({ id }) => id === reopened.id));
     assert.equal(createdTabs, 1);
     await eventually(() => stored.focusAnchor.mission.tabSwitches === 5);
-    assert.equal(stored.focusAnchor.parked.find((item) => item.id === closedId).tabId, reopened.id);
-    assert.ok(notifications.some((entry) => entry.title === keptTab.title && entry.message === updatedNote));
-    assert.ok(notifications.some((entry) => (
-      entry.title === closedTab.title && entry.message === 'Cite this after the draft'
-      && entry.contextMessage === 'Mission: Finish my submission'
-      && entry.iconUrl.endsWith('icons/icon128.png')
-    )));
 
+    tabs.delete(reopened.id);
     for (const handler of removedHandlers) handler(reopened.id, { windowId: reopened.windowId, isWindowClosing: false });
-    await eventually(() => {
-      const item = stored.focusAnchor.parked.find((entry) => entry.id === closedId);
-      return item.status === 'closed' && item.tabId === null;
-    });
+    await eventually(() => stored.focusAnchor.parked.find((entry) => entry.id === closedId).status === 'closed');
     await eventually(() => document.body.textContent.includes('Saved & closed'));
+
+    tabs.set(40, {
+      id: 40, windowId: 10, url: closedTab.url, title: 'Leaving', active: false, pendingUrl: 'https://example.com/next',
+    });
+    const createdBefore = createdTabs;
+    notifications.length = 0;
+    await eventually(() => {
+      const button = openButton(closedTab.title);
+      return button && !button.disabled;
+    });
+    openButton(closedTab.title).click();
+    await eventually(() => createdTabs === createdBefore + 1 && notifications.length === 1);
+    assert.equal([...tabs.values()].filter((tab) => tab.url === closedTab.url && !tab.pendingUrl).length, 1);
+
+    keptTab.url = 'https://example.com/elsewhere';
+    for (const handler of updatedHandlers) handler(keptTab.id, { url: keptTab.url }, { ...keptTab });
+    await eventually(() => stored.focusAnchor.parked.find((item) => item.id === keptId).status === 'closed');
+
+    for (const tab of tabs.values()) tab.active = false;
+    tabs.set(30, { id: 30, windowId: 10, url: 'https://example.com/twice', title: 'Twice', active: true });
+    tabs.set(31, { id: 31, windowId: 10, url: 'https://example.com/twice', title: 'Twice copy', active: false });
+    assert.equal((await send({
+      type: 'save', tabId: 30, url: 'https://example.com/twice', note: 'Two copies', close: true,
+    })).ok, true);
+    assert.equal(tabs.has(30), false);
+    assert.equal(tabs.has(31), true);
+    const duplicate = stored.focusAnchor.parked.find((item) => item.url === 'https://example.com/twice');
+    assert.equal(duplicate.status, 'kept-open');
 
     document.querySelector('.finish').click();
     await eventually(() => stored.focusAnchor.completedSessions === 1);
     assert.equal(stored.focusAnchor.mission, null);
     assert.equal((await send({ type: 'remove', id: keptId })).ok, true);
     assert.equal((await send({ type: 'remove', id: closedId })).ok, true);
+    assert.equal((await send({ type: 'remove', id: duplicate.id })).ok, true);
     await eventually(() => document.body.textContent.includes('Your saved tabs and notes'));
     assert.match(document.body.textContent, /Start a mission you want to finish/);
     assert.match(document.body.textContent, /Save a note on a distracting tab/);
@@ -283,6 +332,7 @@ await test('a closed tab does not leave the popup holding a stale id', async () 
   const changes = new Set();
   const removedHandlers = new Set();
   let stored = {};
+  let session = {};
   let messageHandler;
   const sender = { id: 'focusanchor-stale' };
   globalThis.chrome = {
@@ -301,6 +351,10 @@ await test('a closed tab does not leave the popup holding a stale id', async () 
           for (const fn of changes) fn({ focusAnchor: { newValue: stored.focusAnchor } }, 'local');
         },
       },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
+      },
     },
     notifications: { create: async () => 'note' },
     tabs: {
@@ -318,6 +372,7 @@ await test('a closed tab does not leave the popup holding a stale id', async () 
         for (const handler of removedHandlers) handler(id, { windowId: 10, isWindowClosing: false });
       },
       onActivated: { addListener: () => {} },
+      onUpdated: { addListener: () => {}, removeListener: () => {} },
       onRemoved: {
         addListener: (fn) => { removedHandlers.add(fn); },
         removeListener: (fn) => { removedHandlers.delete(fn); },

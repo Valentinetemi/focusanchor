@@ -16,7 +16,6 @@ export interface SavedTab {
   note: string;
   mission: string | null;
   status: 'kept-open' | 'closed';
-  tabId: number | null;
 }
 
 export interface State {
@@ -91,7 +90,6 @@ export function normalizeState(value: unknown): State {
       note: typeof item.note === 'string' ? item.note : item.reason ?? '',
       mission: typeof item.mission === 'string' ? item.mission : null,
       status: item.status === 'kept-open' ? 'kept-open' : 'closed',
-      tabId: typeof item.tabId === 'number' && Number.isInteger(item.tabId) && item.tabId >= 0 ? item.tabId : null,
     })),
   };
 }
