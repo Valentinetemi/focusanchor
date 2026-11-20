@@ -1,38 +1,58 @@
 # FocusAnchor
 
-Save the tab. Keep the thought.
+You open a tab meaning to come back to it, then forget why it was open.
 
-FocusAnchor is a Chrome extension for picking one mission and saving a note on a distracting tab, whether you keep it open or close it. Come back to the tab later with its note and the mission you were working on.
+**FocusAnchor saves the thought with the tab.** Start a mission, write a note on a distracting page, keep that tab open or close it, and reopen it later with the note still attached.
+
+It fits a productivity session: one mission stays in view with a live timer, and the tabs you parked stay recoverable without losing the reason they mattered.
+
+## Screenshots
+
+![FocusAnchor popup with the live mission timer, a note on the current tab, and saved tab cards](docs/popup.png)
+
+![FocusAnchor dashboard with the mission timer and saved tab cards](docs/dashboard.png)
+
+The popup screenshot shows the full layout. In Chrome the popup is about 600 pixels tall and the rest scrolls.
 
 ## Install locally
 
-Use Chrome and Node.js 24 LTS (24.15 or newer).
+Use a current version of Chrome and Node.js 22 or newer.
 
 ```sh
 npm ci
 npm run build
 ```
 
-1. Open `chrome://extensions` in Chrome and enable **Developer mode**.
+1. Open `chrome://extensions` and enable **Developer mode**.
 2. Click **Load unpacked** and select this project's `dist` directory.
-3. Open Chrome's extensions menu and pin **FocusAnchor**. After rebuilding, click **Reload** on its card in `chrome://extensions`.
+3. Pin **FocusAnchor**. After rebuilding, click **Reload** on its card in `chrome://extensions`.
 
-## Try the full flow
+## Try it
 
-1. Open two ordinary websites in the same window. Click the FocusAnchor toolbar icon and start a mission, such as “Finish my hackathon submission.”
-2. Switch to the other website. Reopen FocusAnchor, enter a note, and choose **Save note & keep open** or **Save note & close tab**. Saving the same URL again updates its note instead of creating a duplicate.
-3. Open FocusAnchor again. Under **Saved tabs**, check the title, note, save action, and original mission. Click **Open** to switch to an existing matching tab or restore the URL when it is no longer open. **Remove** deletes the saved entry.
-4. Open **Dashboard** for the full-page view. **Finish session** clears the mission and adds one to the completed-session count.
+1. Open two ordinary websites in the same window. Open FocusAnchor and start a mission, such as “Finish my hackathon submission.” The timer under the mission counts every second as `m:ss`, and as `h:mm:ss` once an hour has passed.
+2. Switch to the other website. Open FocusAnchor, enter a note, and choose **Save note & keep open** or **Save note & close tab**. Saving the same URL again updates its note.
+3. Open FocusAnchor again. Each saved tab is a card with its icon, title, domain, note, and whether it is still open. **Open** brings the page back and shows a Chrome notification with the title and note. Opening a closed tab marks it kept open. Closing a kept-open tab marks it closed. **Remove** deletes the saved entry.
+4. If that tab is already gone, FocusAnchor asks you to open it again from the current page.
+5. Open **Dashboard** for the full-page view. **Finish session** clears the mission and adds one to the completed-session count.
 
-The elapsed timer measures time since the mission started. The switch count measures Chrome tab activation changes during that mission, including changes caused by closing or opening tabs. It remains a plain browser activity count. Saved tabs is the number of unique URLs currently saved.
+The switch count is how many times the active tab changed during the mission, including changes caused by opening or closing tabs. Saved tabs is the number of unique URLs currently saved.
 
-Run `npm test` to build the extension and exercise the popup and service worker with mocked Chrome APIs. The toolbar walkthrough above checks browser permissions and tab behavior in Chrome.
+## Test
+
+```sh
+npm test
+```
+
+`npm test` builds the extension and exercises the popup and service worker with mocked Chrome APIs. Loading the unpacked `dist` directory is what checks real Chrome permissions and tab behavior.
 
 ## Permissions and data
 
 - `activeTab` lets the popup read the current tab's URL and title when opened from the toolbar. Saving supports HTTP and HTTPS pages.
-- `tabs` lets the dashboard find and focus an already-open saved URL before it creates a new tab.
-- `storage` persists the mission, dashboard counts, and saved URLs, titles, notes, save actions, and original missions in this Chrome profile. The extension has no server or analytics.
-- FocusAnchor saves the record before attempting to close the tab. Reopening restores the URL, so unsaved form content or other page state may be lost when a tab closes.
+- `tabs` lets FocusAnchor focus an already-open saved URL, close a tab you chose to close, and notice when a kept-open tab goes away.
+- `storage` keeps the mission, dashboard counts, and saved URLs, titles, notes, actions, and original missions in this Chrome profile. There is no server or analytics.
+- `notifications` shows the saved title and note when you open a saved tab.
+- `favicon` shows each saved page's icon on its card.
+
+FocusAnchor saves the record before it tries to close the tab. Reopening restores the URL, so unsaved form content or other page state may be lost when a tab closes.
 
 Built with React, TypeScript, and Vite for Manifest V3.
