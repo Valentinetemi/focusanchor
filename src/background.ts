@@ -1,5 +1,5 @@
-import { isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
-import type { Command, Reply, SavedTab, State } from './state';
+import { activeMission, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
+import type { Command, Mission, Reply, SavedTab, State } from './state';
 
 const CLOSED_TAB_ERROR = 'This tab is no longer open. Open FocusAnchor again to save the current page.';
 const TAB_KEY = 'focusAnchorTabs';
@@ -62,10 +62,17 @@ function findOpenTab(tabs: chrome.tabs.Tab[], url: string, exceptId?: number) {
   return tabs.find((tab) => tab.id !== exceptId && showsSavedPage(tab, url));
 }
 
+function needsMigration(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const stored = value as { mission?: unknown; missions?: unknown };
+  return stored.mission != null && !Array.isArray(stored.missions);
+}
+
 async function reconcile() {
-  const [state, openTabs] = await Promise.all([load(), chrome.tabs.query({})]);
+  const raw = await chrome.storage.local.get(STATE_KEY);
+  const [state, openTabs] = [normalizeState(raw[STATE_KEY]), await chrome.tabs.query({})];
   const nextMap: TabMap = {};
-  let changed = false;
+  let changed = needsMigration(raw[STATE_KEY]);
   const parked = state.parked.map((item) => {
     const match = findOpenTab(openTabs, item.url);
     if (match?.id !== undefined) {
@@ -98,6 +105,18 @@ async function showSavedNote(item: SavedTab) {
   }
 }
 
+function chosenMission(state: State, existing: SavedTab | undefined, requested: string | null | undefined) {
+  if (requested === null) return { missionId: null, mission: null };
+  if (requested === undefined && existing) return { missionId: existing.missionId, mission: existing.mission };
+  const requestedMission = requested ? state.missions.find((item) => item.id === requested) : undefined;
+  const mission = requestedMission ?? state.missions.find((item) => item.id === state.activeMissionId);
+  return mission ? { missionId: mission.id, mission: mission.text } : { missionId: null, mission: null };
+}
+
+function mostRecent(missions: Mission[]): string | null {
+  return [...missions].sort((a, b) => b.activatedAt - a.activatedAt)[0]?.id ?? null;
+}
+
 function markOpen(state: State, id: string): State {
   return {
     ...state,
@@ -114,20 +133,51 @@ async function apply(command: Command): Promise<Reply> {
     case 'start': {
       const value = command.text.trim();
       if (!value || value.length > MISSION_LIMIT) throw new Error('Enter a mission of up to 100 characters.');
-      if (state.mission) throw new Error('Finish the current mission first.');
+      const existing = command.id ? state.missions.find((mission) => mission.id === command.id) : undefined;
+      if (existing) {
+        if (state.activeMissionId !== existing.id) {
+          await save({ ...state, activeMissionId: existing.id });
+        }
+        break;
+      }
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      await save({ ...state, mission: {
+      const now = Date.now();
+      const mission: Mission = {
+        id: command.id || crypto.randomUUID(),
         text: value,
-        startedAt: Date.now(),
+        startedAt: now,
+        activatedAt: now,
         tabSwitches: 0,
         lastTabId: tab?.id ?? null,
-      } });
+      };
+      await save({ ...state, missions: [...state.missions, mission], activeMissionId: mission.id });
+      break;
+    }
+    case 'activate': {
+      if (!state.missions.some((mission) => mission.id === command.id)) {
+        throw new Error('That mission is no longer active.');
+      }
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const now = Date.now();
+      await save({
+        ...state,
+        activeMissionId: command.id,
+        missions: state.missions.map((mission) => mission.id === command.id
+          ? { ...mission, activatedAt: now, lastTabId: tab?.id ?? mission.lastTabId }
+          : mission),
+      });
       break;
     }
     case 'finish': {
-      if (state.mission) {
-        await save({ ...state, mission: null, completedSessions: state.completedSessions + 1 });
-      }
+      const id = command.id ?? state.activeMissionId;
+      if (!id || !state.missions.some((mission) => mission.id === id)) break;
+      const missions = state.missions.filter((mission) => mission.id !== id);
+      await save({
+        ...state,
+        missions,
+        activeMissionId: state.activeMissionId === id ? mostRecent(missions) : state.activeMissionId,
+        completedSessions: state.completedSessions + 1,
+      });
       break;
     }
     case 'save': {
@@ -138,12 +188,14 @@ async function apply(command: Command): Promise<Reply> {
         throw new Error('This tab changed. Open FocusAnchor again to save it.');
       }
       const existing = state.parked.find((item) => item.url === tab.url);
+      const belongs = chosenMission(state, existing, command.missionId);
       const savedTab: SavedTab = {
         id: existing?.id ?? crypto.randomUUID(),
         title: tab.title || new URL(tab.url).hostname,
         url: tab.url,
         note,
-        mission: existing ? existing.mission : state.mission?.text ?? null,
+        missionId: belongs.missionId,
+        mission: belongs.mission,
         status: 'kept-open',
       };
       await save({
@@ -215,13 +267,14 @@ chrome.runtime.onMessage.addListener((command: Command, sender, respond) => {
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   void enqueue(async () => {
     const state = await load();
-    const mission = state.mission;
+    const mission = activeMission(state);
     if (!mission || mission.lastTabId === tabId) return;
-    await save({ ...state, mission: {
-      ...mission,
-      lastTabId: tabId,
-      tabSwitches: mission.tabSwitches + 1,
-    } });
+    await save({
+      ...state,
+      missions: state.missions.map((item) => item.id === mission.id
+        ? { ...item, lastTabId: tabId, tabSwitches: item.tabSwitches + 1 }
+        : item),
+    });
   }).catch((error: unknown) => console.error('Could not record tab switch.', error));
 });
 

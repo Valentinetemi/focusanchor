@@ -157,7 +157,8 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
   assert.equal((await send({ type: 'start', text: 'Finish my submission' })).ok, true);
   activate(2);
-  await eventually(() => stored.focusAnchor.mission.tabSwitches === 1);
+  const activeStored = () => stored.focusAnchor.missions.find((mission) => mission.id === stored.focusAnchor.activeMissionId);
+  await eventually(() => activeStored().tabSwitches === 1);
 
   const firstNote = 'Read the examples after submitting';
   assert.equal((await send({
@@ -170,6 +171,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     title: keptTab.title,
     url: keptTab.url,
     note: firstNote,
+    missionId: activeStored().id,
     mission: 'Finish my submission',
     status: 'kept-open',
   });
@@ -205,7 +207,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
   const keptId = stored.focusAnchor.parked.find((item) => item.url === keptTab.url).id;
   const closedId = stored.focusAnchor.parked.find((item) => item.url === closedTab.url).id;
-  stored.focusAnchor.mission.startedAt = Date.now() - 12_500;
+  activeStored().startedAt = Date.now() - 12_500;
   const dom = new JSDOM('<!doctype html><div id="root"></div>', {
     url: 'https://focusanchor.test/?dashboard',
   });
@@ -231,7 +233,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     const beforeTick = timer.textContent.trim();
     await eventually(() => document.querySelector('time').textContent.trim() !== beforeTick);
     assert.match(document.querySelector('time').textContent.trim(), /^\d+:\d{2}$/);
-    stored.focusAnchor.mission.startedAt = Date.now() - 3_723_000;
+    activeStored().startedAt = Date.now() - 3_723_000;
     for (const fn of changes) fn({ focusAnchor: { newValue: structuredClone(stored.focusAnchor) } }, 'local');
     await eventually(() => /^1:02:\d{2}$/.test(document.querySelector('time')?.textContent.trim() ?? ''));
     assert.match(document.querySelector('time').getAttribute('aria-label'), /1 hour 2 minutes \d+ seconds elapsed/);
@@ -268,7 +270,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     openButton(closedTab.title).click();
     await eventually(() => notifications.length === 1 && tabUpdates.some(({ id }) => id === reopened.id));
     assert.equal(createdTabs, 1);
-    await eventually(() => stored.focusAnchor.mission.tabSwitches === 5);
+    await eventually(() => activeStored().tabSwitches === 5);
 
     tabs.delete(reopened.id);
     for (const handler of removedHandlers) handler(reopened.id, { windowId: reopened.windowId, isWindowClosing: false });
@@ -305,7 +307,8 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
     document.querySelector('.finish').click();
     await eventually(() => stored.focusAnchor.completedSessions === 1);
-    assert.equal(stored.focusAnchor.mission, null);
+    assert.equal(stored.focusAnchor.activeMissionId, null);
+    assert.equal(stored.focusAnchor.missions.length, 0);
     assert.equal((await send({ type: 'remove', id: keptId })).ok, true);
     assert.equal((await send({ type: 'remove', id: closedId })).ok, true);
     assert.equal((await send({ type: 'remove', id: duplicate.id })).ok, true);
@@ -426,5 +429,306 @@ await test('a closed tab does not leave the popup holding a stale id', async () 
   } finally {
     dom.window.close();
     delete globalThis.chrome;
+  }
+});
+
+await test('a saved single mission migrates and more than one mission can stay active', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const startedAt = 1_700_000_000_000;
+  const notes = { id: 7, windowId: 1, url: 'https://example.com/notes', title: 'Notes', active: true };
+  const tabs = new Map([[7, notes]]);
+  let stored = {
+    focusAnchor: {
+      mission: { text: 'Write the outline', startedAt, tabSwitches: 4, lastTabId: 7 },
+      parked: [{
+        id: 'parked-notes',
+        title: 'Notes',
+        url: notes.url,
+        note: 'Outline source',
+        mission: 'Write the outline',
+        status: 'kept-open',
+      }],
+      completedSessions: 1,
+    },
+  };
+  let session = {};
+  let messageHandler;
+  const sender = { id: 'focusanchor-missions' };
+  globalThis.chrome = {
+    runtime: {
+      id: sender.id,
+      getURL: (path) => `chrome-extension://${sender.id}/${path}`,
+      onMessage: { addListener: (fn) => { messageHandler = fn; } },
+      sendMessage: (request) => new Promise((resolve) => messageHandler(request, sender, resolve)),
+    },
+    storage: {
+      onChanged: { addListener() {}, removeListener() {} },
+      local: {
+        get: async () => structuredClone(stored),
+        set: async (data) => { stored = structuredClone(data); },
+      },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
+      },
+    },
+    notifications: { create: async () => 'note' },
+    tabs: {
+      query: async () => [...tabs.values()].map((tab) => ({ ...tab })),
+      get: async (id) => {
+        if (!tabs.has(id)) throw new Error(`No tab with id: ${id}`);
+        return { ...tabs.get(id) };
+      },
+      update: async (id, properties) => ({ ...tabs.get(id), ...properties }),
+      remove: async (id) => { tabs.delete(id); },
+      create: async ({ url }) => {
+        const tab = { id: 8, windowId: 1, url, title: url, active: true };
+        tabs.set(tab.id, tab);
+        return { ...tab };
+      },
+      onActivated: { addListener() {} },
+      onRemoved: { addListener() {}, removeListener() {} },
+      onUpdated: { addListener() {}, removeListener() {} },
+    },
+    windows: { update: async (id, properties) => ({ id, ...properties }) },
+  };
+
+  try {
+    await import(new URL(`${manifest.background.service_worker}?missions=1`, dist));
+    const send = globalThis.chrome.runtime.sendMessage;
+    await eventually(() => stored.focusAnchor.missions?.length === 1);
+    const legacy = stored.focusAnchor.missions[0];
+    assert.equal(legacy.id, `legacy-${startedAt}`);
+    assert.equal(legacy.text, 'Write the outline');
+    assert.equal(legacy.tabSwitches, 4);
+    assert.equal(stored.focusAnchor.activeMissionId, legacy.id);
+    assert.equal(stored.focusAnchor.parked[0].missionId, legacy.id);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Write the outline');
+    assert.equal(stored.focusAnchor.completedSessions, 1);
+
+    assert.equal((await send({ type: 'start', text: 'Record the demo' })).ok, true);
+    assert.equal(stored.focusAnchor.missions.length, 2);
+    const demo = stored.focusAnchor.missions.find((mission) => mission.text === 'Record the demo');
+    assert.equal(stored.focusAnchor.activeMissionId, demo.id);
+    assert.equal((await send({
+      type: 'save', tabId: 7, url: notes.url, note: 'Demo shot list', close: false, missionId: demo.id,
+    })).ok, true);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Record the demo');
+    assert.equal(stored.focusAnchor.parked[0].missionId, demo.id);
+
+    assert.equal((await send({ type: 'activate', id: legacy.id })).ok, true);
+    assert.equal(stored.focusAnchor.activeMissionId, legacy.id);
+    assert.equal((await send({ type: 'finish', id: legacy.id })).ok, true);
+    assert.equal(stored.focusAnchor.missions.length, 1);
+    assert.equal(stored.focusAnchor.missions[0].id, demo.id);
+    assert.equal(stored.focusAnchor.activeMissionId, demo.id);
+    assert.equal(stored.focusAnchor.completedSessions, 2);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Record the demo');
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+function installMissionChrome(seed) {
+  const tabs = new Map([[1, { id: 1, windowId: 1, url: 'https://example.com/work', title: 'Work', active: true }]]);
+  const changes = new Set();
+  let stored = { focusAnchor: seed };
+  let session = {};
+  let messageHandler;
+  const sender = { id: `focusanchor-${seed.activeMissionId ?? 'review'}` };
+  globalThis.chrome = {
+    runtime: {
+      id: sender.id,
+      getURL: (path) => `chrome-extension://${sender.id}/${path}`,
+      onMessage: { addListener: (fn) => { messageHandler = fn; } },
+      sendMessage: (request) => new Promise((resolve) => messageHandler(request, sender, resolve)),
+    },
+    storage: {
+      onChanged: { addListener: (fn) => changes.add(fn), removeListener: (fn) => changes.delete(fn) },
+      local: {
+        get: async () => structuredClone(stored),
+        set: async (data) => {
+          stored = structuredClone(data);
+          for (const fn of changes) fn({ focusAnchor: { newValue: stored.focusAnchor } }, 'local');
+        },
+      },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
+      },
+    },
+    notifications: { create: async () => 'note' },
+    tabs: {
+      query: async () => [...tabs.values()].map((tab) => ({ ...tab })),
+      get: async (id) => {
+        if (!tabs.has(id)) throw new Error(`No tab with id: ${id}`);
+        return { ...tabs.get(id) };
+      },
+      update: async (id, properties) => ({ ...tabs.get(id), ...properties }),
+      remove: async (id) => { tabs.delete(id); },
+      create: async ({ url }) => {
+        const tab = { id: 9, windowId: 1, url, title: url, active: true };
+        tabs.set(tab.id, tab);
+        return { ...tab };
+      },
+      onActivated: { addListener() {} },
+      onRemoved: { addListener() {}, removeListener() {} },
+      onUpdated: { addListener() {}, removeListener() {} },
+    },
+    windows: { update: async (id, properties) => ({ id, ...properties }) },
+  };
+  return {
+    tabs,
+    send: (...args) => globalThis.chrome.runtime.sendMessage(...args),
+    read: () => stored.focusAnchor,
+    cleanup: () => { delete globalThis.chrome; },
+  };
+}
+
+await test('an explicit mission id is not reassigned when another mission has the same name', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({
+    missions: [{ id: 'live', text: 'Same', startedAt: 10, activatedAt: 20, tabSwitches: 0, lastTabId: 1 }],
+    activeMissionId: 'live',
+    parked: [{
+      id: 'old-tab',
+      title: 'Old notes',
+      url: 'https://example.com/old',
+      note: 'From the finished mission',
+      missionId: 'finished',
+      mission: 'Same',
+      status: 'closed',
+    }],
+    completedSessions: 0,
+  });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?explicit-mission=1`, dist));
+    assert.equal((await harness.send({ type: 'activate', id: 'live' })).ok, true);
+    assert.equal(harness.read().parked[0].missionId, 'finished');
+    assert.equal(harness.read().parked[0].mission, 'Same');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+await test('a save aimed at a finished mission uses the active mission', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({
+    missions: [
+      { id: 'gone', text: 'Finished', startedAt: 10, activatedAt: 10, tabSwitches: 0, lastTabId: 1 },
+      { id: 'live', text: 'Current', startedAt: 20, activatedAt: 30, tabSwitches: 0, lastTabId: 1 },
+    ],
+    activeMissionId: 'live',
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?fallback-mission=1`, dist));
+    assert.equal((await harness.send({ type: 'finish', id: 'gone' })).ok, true);
+    assert.equal((await harness.send({
+      type: 'save', tabId: 1, url: 'https://example.com/work', note: 'Still current', close: false, missionId: 'gone',
+    })).ok, true);
+    assert.equal(harness.read().parked[0].missionId, 'live');
+    assert.equal(harness.read().parked[0].mission, 'Current');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+await test('retrying a start reuses the mission instead of creating another', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({ missions: [], activeMissionId: null, parked: [], completedSessions: 0 });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?idempotent-start=1`, dist));
+    const first = await harness.send({ type: 'start', text: 'One mission', id: 'start-1' });
+    const second = await harness.send({ type: 'start', text: 'One mission', id: 'start-1' });
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(harness.read().missions.length, 1);
+    assert.equal(harness.read().missions[0].id, 'start-1');
+    assert.equal(harness.read().missions[0].text, 'One mission');
+    assert.equal(harness.read().activeMissionId, 'start-1');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+async function renderPopup(search, seed) {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const popupScript = await readFile(new URL(manifest.action.default_popup, dist), 'utf8')
+    .then((html) => html.match(/src="([^"]+\.js)"/)?.[1]);
+  assert.ok(popupScript);
+  const harness = installMissionChrome(seed);
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', {
+    url: `https://focusanchor.test/popup.html${search}`,
+  });
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    location: dom.window.location,
+    MutationObserver: dom.window.MutationObserver,
+  });
+  await import(new URL(`${popupScript}${search}`, dist));
+  return { harness, dom };
+}
+
+await test('the save mission picker follows the active mission and drops a removed one', async () => {
+  const mission = (id, text, activatedAt) => ({
+    id, text, startedAt: activatedAt, activatedAt, tabSwitches: 0, lastTabId: 1,
+  });
+  const { harness, dom } = await renderPopup('?picker=1', {
+    missions: [mission('m1', 'First', 10), mission('m2', 'Second', 20)],
+    activeMissionId: 'm1',
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    const selected = () => document.querySelector('#save-mission')?.value;
+    await eventually(() => selected() === 'm1');
+    const next = structuredClone(harness.read());
+    next.activeMissionId = 'm2';
+    await globalThis.chrome.storage.local.set({ focusAnchor: next });
+    await eventually(() => selected() === 'm2');
+    const remaining = structuredClone(harness.read());
+    remaining.missions = remaining.missions.filter((item) => item.id === 'm1');
+    remaining.activeMissionId = 'm1';
+    await globalThis.chrome.storage.local.set({ focusAnchor: remaining });
+    await eventually(() => selected() === 'm1');
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
+
+await test('finished missions with the same name stay in separate groups', async () => {
+  const parked = (id) => ({
+    id,
+    title: id,
+    url: `https://example.com/${id}`,
+    note: `Note ${id}`,
+    missionId: id,
+    mission: 'Notes',
+    status: 'closed',
+  });
+  const { harness, dom } = await renderPopup('?groups=1&dashboard', {
+    missions: [],
+    activeMissionId: null,
+    parked: [parked('finished-a'), parked('finished-b')],
+    completedSessions: 2,
+  });
+  try {
+    await eventually(() => document.querySelectorAll('.mission-group').length === 2);
+    const titles = [...document.querySelectorAll('.mission-group > h3')].map((heading) => heading.textContent);
+    assert.deepEqual(titles, ['Notes', 'Notes']);
+    assert.match(document.body.textContent, /Note finished-a/);
+    assert.match(document.body.textContent, /Note finished-b/);
+  } finally {
+    dom.window.close();
+    harness.cleanup();
   }
 });
