@@ -88,8 +88,8 @@ function missionGroups(state: State) {
   const loose: SavedTab[] = [];
   for (const item of state.parked) {
     const mission = state.missions.find((entry) => entry.id === item.missionId);
-    const key = mission?.id ?? (item.mission ? `name:${item.mission}` : '');
-    const title = mission?.text ?? item.mission;
+    const key = item.missionId || (item.mission ? `name:${item.mission}` : '');
+    const title = mission?.text ?? item.mission ?? (item.missionId ? 'Finished mission' : '');
     if (!key || !title) {
       loose.push(item);
       continue;

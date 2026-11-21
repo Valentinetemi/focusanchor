@@ -704,3 +704,31 @@ await test('the save mission picker follows the active mission and drops a remov
     harness.cleanup();
   }
 });
+
+await test('finished missions with the same name stay in separate groups', async () => {
+  const parked = (id) => ({
+    id,
+    title: id,
+    url: `https://example.com/${id}`,
+    note: `Note ${id}`,
+    missionId: id,
+    mission: 'Notes',
+    status: 'closed',
+  });
+  const { harness, dom } = await renderPopup('?groups=1&dashboard', {
+    missions: [],
+    activeMissionId: null,
+    parked: [parked('finished-a'), parked('finished-b')],
+    completedSessions: 2,
+  });
+  try {
+    await eventually(() => document.querySelectorAll('.mission-group').length === 2);
+    const titles = [...document.querySelectorAll('.mission-group > h3')].map((heading) => heading.textContent);
+    assert.deepEqual(titles, ['Notes', 'Notes']);
+    assert.match(document.body.textContent, /Note finished-a/);
+    assert.match(document.body.textContent, /Note finished-b/);
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
