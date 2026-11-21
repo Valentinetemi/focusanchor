@@ -54,6 +54,15 @@ function Favicon({ url, domain }: { url: string; domain: string }) {
   );
 }
 
+function AnchorIcon() {
+  return (
+    <svg className="anchor" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle cx="12" cy="5.2" r="2.1" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12 7.4v11M8.2 10.4h7.6M7.2 18.2c1.1 1.5 2.7 2.3 4.8 2.3s3.7-.8 4.8-2.3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function SavedCard({ item, busy, onOpen, onRemove }: {
   item: SavedTab;
   busy: boolean;
@@ -62,23 +71,22 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
 }) {
   const domain = domainOf(item.url);
   return (
-    <li className="card">
-      <div className="card-top">
-        <Favicon url={item.url} domain={domain} />
-        <div className="card-id">
-          <h3>{item.title}</h3>
-          <p className="domain">{domain}</p>
-        </div>
-        <span className={`saved-status ${item.status}`}>{item.status === 'closed' ? 'Saved & closed' : 'Kept open'}</span>
+    <li className="tab-row">
+      <Favicon url={item.url} domain={domain} />
+      <div className="tab-copy">
+        <p className="tab-title">{item.title}</p>
+        <p className="note-preview">{item.note}</p>
       </div>
-      <p className="note-preview">{item.note}</p>
-      <div className="card-footer">
-        <span>{`Original mission: ${item.mission ?? 'None'}`}</span>
-        <div className="actions">
+      <details className="row-menu">
+        <summary aria-label={`Actions for ${item.title}`}>⋯</summary>
+        <div className="menu-panel">
+          <p className="domain">{domain}</p>
+          <p className={`saved-status ${item.status}`}>{item.status === 'closed' ? 'Saved & closed' : 'Kept open'}</p>
+          <p>{`Original mission: ${item.mission ?? 'None'}`}</p>
           <button type="button" className="reopen" disabled={busy} aria-label={`Open ${item.title}`} onClick={onOpen}>Open</button>
           <button type="button" className="quiet" disabled={busy} aria-label={`Remove ${item.title}`} onClick={onRemove}>Remove</button>
         </div>
-      </div>
+      </details>
     </li>
   );
 }
@@ -145,6 +153,7 @@ function App() {
   const [tab, setTab] = useState<ActiveTab | null>(null);
   const [missionText, setMissionText] = useState('');
   const [saveMissionId, setSaveMissionId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [note, setNote] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -301,104 +310,85 @@ function App() {
       <label className="sr-only" htmlFor="mission">{state?.missions.length ? 'New mission' : 'What are you working on?'}</label>
       <input id="mission" placeholder={state?.missions.length ? 'New mission' : 'What are you working on?'} required autoComplete="off"
         maxLength={MISSION_LIMIT} value={missionText} onChange={(event) => setMissionText(event.target.value)} />
-      <button type="submit" className="primary" disabled={busy || !missionText.trim()}>
+      <button type="submit" className="solid-pill" disabled={busy || !missionText.trim()}>
         {state?.missions.length ? 'Add' : 'Start mission'}
       </button>
     </form>
   );
+  const popupTabs = current
+    ? state?.parked.filter((item) => item.missionId === current.id || (!item.missionId && item.mission === current.text)) ?? []
+    : state?.parked ?? [];
 
   return (
     <main className={dashboard ? 'dashboard' : 'popup'}>
-      <div className="shell">
+      <div className="glass">
         <header className="masthead">
           <div className="brand">
-            <span className="mark" aria-hidden="true"><span /></span>
-            <div>
-              <h1>FocusAnchor</h1>
-              <p>Save the tab. Keep the thought.</p>
-            </div>
+            <AnchorIcon />
+            <h1>FocusAnchor</h1>
           </div>
-          {!dashboard && <button type="button" className="quiet dashboard-link" onClick={openDashboard}>Dashboard</button>}
+          {!dashboard && <button type="button" className="dash-link" onClick={openDashboard}>Dashboard &gt;</button>}
         </header>
 
         {message && <p className="notice" role="status">{message}</p>}
         {!state ? !message && <p className="muted" role="status">Loading your dashboard…</p> : <>
-          <section className="mission panel" aria-labelledby="mission-heading">
-            <h2 id="mission-heading"><span className="live-dot" aria-hidden="true" />{dashboard ? 'Missions' : 'Current mission'}</h2>
-            {dashboard ? <>
-              {orderedMissions.length > 0 && <ul className="mission-list">{orderedMissions.map((mission) => {
+          <section className="mission" aria-labelledby="mission-heading">
+            <h2 id="mission-heading" className="sr-only">Current mission</h2>
+            {elapsed ? <time className="hero-time" dateTime={elapsed.dateTime} aria-label={elapsed.label}>{elapsed.display}</time>
+              : <p className="hero-time hero-empty" aria-hidden="true">0:00</p>}
+            <button type="button" className="mission-toggle" aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((open) => !open)}>
+              <span>{current?.text ?? 'No mission yet'}</span>
+              <span className="chevron" aria-hidden="true">{pickerOpen ? '⌃' : '›'}</span>
+            </button>
+            <div className={pickerOpen ? 'picker open' : 'picker'}>
+              {orderedMissions.map((mission) => {
                 const timing = formatElapsed(mission.startedAt, now);
                 const selected = mission.id === state.activeMissionId;
                 return (
-                  <li key={mission.id} className={selected ? 'mission-row is-active' : 'mission-row'}>
+                  <div key={mission.id} className="mission-row">
                     <button type="button" className="mission-pick" aria-pressed={selected}
                       onClick={() => void send({ type: 'activate', id: mission.id })}>{mission.text}</button>
                     <time dateTime={timing.dateTime} aria-label={timing.label}>{timing.display}</time>
                     <button type="button" className={selected ? 'finish' : 'quiet'} disabled={busy}
                       onClick={() => void send({ type: 'finish', id: mission.id })}>Finish</button>
-                  </li>
+                  </div>
                 );
-              })}</ul>}
-              {missionForm}
-            </> : current && elapsed ? <>
-              <div className="mission-top">
-                <select className="mission-select" aria-label="Active mission" value={current.id}
-                  onChange={(event) => void send({ type: 'activate', id: event.target.value })}>
-                  {orderedMissions.map((mission) => <option key={mission.id} value={mission.id}>{mission.text}</option>)}
-                </select>
-                <div className="timer-block">
-                  <span className="timer-kicker">Elapsed</span>
-                  <time dateTime={elapsed.dateTime} aria-label={elapsed.label}>{elapsed.display}</time>
-                </div>
-              </div>
-              <div className="mission-footer">
-                <button type="button" className="finish" disabled={busy}
-                  onClick={() => void send({ type: 'finish', id: current.id })}>Finish</button>
-              </div>
-              {missionForm}
-            </> : missionForm}
-          </section>
-
-          <p className="stats" aria-label="Focus dashboard">
-            <span><strong>{state.parked.length}</strong> saved</span>
-            <span><strong>{current?.tabSwitches ?? '—'}</strong> switches</span>
-            <span><strong>{state.completedSessions}</strong> sessions</span>
-          </p>
-
-          {!dashboard && <section className="parking panel" aria-labelledby="park-heading">
-            <h2 id="park-heading">Save this tab</h2>
-            {tab ? <form onSubmit={saveTab}>
-              <p className="tab-title">{tab.title}</p>
-              <p className="domain">{domainOf(tab.url)}</p>
+              })}
               {state.missions.length > 0 && <>
-                <label htmlFor="save-mission">Mission</label>
+                <label className="sr-only" htmlFor="save-mission">Mission for this tab</label>
                 <select id="save-mission" value={saveMissionId ?? current?.id ?? ''}
                   onChange={(event) => setSaveMissionId(event.target.value)}>
                   {state.missions.map((mission) => <option key={mission.id} value={mission.id}>{mission.text}</option>)}
                 </select>
               </>}
-              <label htmlFor="note">Note</label>
-              <textarea id="note" rows={2} maxLength={NOTE_LIMIT} value={note}
-                onChange={(event) => setNote(event.target.value)} required placeholder="Why does this tab matter?" />
-              <div className="save-actions">
-                <button type="submit" className="secondary" name="save-action" value="keep-open"
-                  disabled={busy || !note.trim()}>Save note &amp; keep open</button>
-                <button type="submit" className="primary" name="save-action" value="close"
-                  disabled={busy || !note.trim()}>Save note &amp; close tab</button>
-              </div>
-            </form> : <p className="muted">Open FocusAnchor from a website to save its tab.</p>}
-          </section>}
+              {missionForm}
+            </div>
+          </section>
+
+          {!dashboard && (tab ? <form className="note-form" onSubmit={saveTab}>
+            <p className="tab-title">{tab.title}</p>
+            <label className="sr-only" htmlFor="note">Note for this tab</label>
+            <textarea id="note" rows={2} maxLength={NOTE_LIMIT} value={note}
+              onChange={(event) => setNote(event.target.value)} required placeholder="Note for this tab" />
+            <div className="save-actions">
+              <button type="submit" className="glass-pill" name="save-action" value="keep-open"
+                aria-label="Save note & keep open" disabled={busy || !note.trim()}>Keep open</button>
+              <button type="submit" className="solid-pill" name="save-action" value="close"
+                aria-label="Save note & close tab" disabled={busy || !note.trim()}>Save &amp; close</button>
+            </div>
+          </form> : <p className="muted">Open FocusAnchor from a website to save its tab.</p>)}
 
           <section className="library" aria-labelledby="library-heading">
-            <h2 id="library-heading">Saved tabs</h2>
-            {state.parked.length === 0 ? <EmptyState /> : dashboard
+            <h2 id="library-heading" className="sr-only">Saved tabs</h2>
+            {(dashboard ? state.parked : popupTabs).length === 0 ? <EmptyState /> : dashboard
               ? missionGroups(state).map((group) => (
                 <div key={group.key} className="mission-group">
                   <h3>{group.title}</h3>
                   <ul>{cards(group.items)}</ul>
                 </div>
               ))
-              : <ul>{cards(state.parked)}</ul>}
+              : <ul>{cards(popupTabs)}</ul>}
           </section>
         </>}
         <footer className="colophon">
