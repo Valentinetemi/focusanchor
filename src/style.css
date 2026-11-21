@@ -4,7 +4,7 @@
   --note: #eef1fb;
   --line: rgba(255, 255, 255, 0.72);
   --hairline: rgba(255, 255, 255, 0.55);
-  --shadow: 0 1px 1px rgba(36, 48, 110, 0.45), 0 0 12px rgba(36, 48, 110, 0.28);
+  --shadow: 0 1px 2px rgba(28, 40, 96, 0.55), 0 0 10px rgba(28, 40, 96, 0.4);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif;
   font-size: 15px;
   line-height: 1.35;
