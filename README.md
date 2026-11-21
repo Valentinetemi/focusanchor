@@ -12,7 +12,7 @@ It fits a productivity session: each mission keeps its own timer, and the tabs y
 
 ![FocusAnchor dashboard with the mission timer and saved tab cards](docs/dashboard.png)
 
-The popup is a single glass panel, about 340 pixels wide. In Chrome it scrolls only if the saved-tab list grows past the popup height.
+The popup is a single glass panel, about 340 pixels wide. It scrolls when the saved-tab list or the open mission picker grows past the popup height.
 
 ## Install locally
 
@@ -30,8 +30,8 @@ npm run build
 ## Try it
 
 1. Open two ordinary websites in the same window. Open FocusAnchor and start a mission, such as “Finish my hackathon submission.” Add another with **Add** if you are juggling more than one. The active mission’s timer counts every second as `m:ss`, and as `h:mm:ss` once an hour has passed. The mission menu switches which timer is active.
-2. Switch to the other website. Open FocusAnchor, enter a note, choose the mission (it starts as the active one), and choose **Save note & keep open** or **Save note & close tab**. Saving the same URL again updates its note.
-3. Open FocusAnchor again. Each saved tab is a card with its icon, title, domain, note, and whether it is still open. **Open** brings the page back and shows a Chrome notification with the title and note. Opening a closed tab marks it kept open. Closing a kept-open tab marks it closed. **Remove** deletes the saved entry.
+2. Switch to the other website. Open FocusAnchor, enter a note, and choose **Keep open** or **Save & close**. The note is saved on the active mission. Saving the same URL again updates its note.
+3. Open FocusAnchor again. Each saved tab shows its icon, title, and a one-line note. The **⋯** menu has the domain, whether the tab is still open, **Open**, and **Remove**. **Open** brings the page back and shows a Chrome notification with the title and note. Opening a closed tab marks it kept open. Closing a kept-open tab marks it closed.
 4. If that tab is already gone, FocusAnchor asks you to open it again from the current page.
 5. Open **Dashboard** for the full-page view. Saved tabs are grouped by mission. **Finish** ends that mission only and adds one to the completed-session count. An older single-mission save is kept as one mission in the list.
 
