@@ -303,7 +303,11 @@ function App() {
     </form>
   );
   const popupTabs = current
-    ? state?.parked.filter((item) => item.missionId === current.id || (!item.missionId && item.mission === current.text)) ?? []
+    ? state?.parked.filter((item) => {
+        if (item.missionId) return item.missionId === current.id;
+        if (!item.mission || item.mission !== current.text) return false;
+        return state.missions.filter((mission) => mission.text === item.mission).length === 1;
+      }) ?? []
     : state?.parked ?? [];
 
   return (

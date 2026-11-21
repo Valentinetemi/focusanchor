@@ -704,6 +704,38 @@ await test('the save mission picker follows the active mission and drops a remov
   }
 });
 
+await test('a tab with no mission id stays out of the list when its name matches more than one mission', async () => {
+  const mission = (id) => ({ id, text: 'Same', startedAt: 10, activatedAt: 10, tabSwitches: 0, lastTabId: 1 });
+  const { harness, dom } = await renderPopup('?ambiguous=1', {
+    missions: [mission('a'), mission('b')],
+    activeMissionId: 'a',
+    parked: [{
+      id: 'loose',
+      title: 'Ambiguous notes',
+      url: 'https://example.com/loose',
+      note: 'Unowned',
+      mission: 'Same',
+      status: 'closed',
+    }, {
+      id: 'owned',
+      title: 'Owned notes',
+      url: 'https://example.com/owned',
+      note: 'Owned',
+      missionId: 'a',
+      mission: 'Same',
+      status: 'kept-open',
+    }],
+    completedSessions: 0,
+  });
+  try {
+    await eventually(() => document.body.textContent.includes('Owned notes'));
+    assert.equal(document.body.textContent.includes('Ambiguous notes'), false);
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
+
 await test('finished missions with the same name stay in separate groups', async () => {
   const parked = (id) => ({
     id,
