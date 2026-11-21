@@ -256,8 +256,6 @@ input::placeholder, textarea::placeholder { color: var(--note); }
   font-size: 12px;
 }
 .notice { color: var(--text); font-size: 13px; }
-.colophon { display: flex; justify-content: flex-end; }
-.capybara { color: rgba(247, 249, 255, 0.45); display: block; }
 .favicon {
   position: relative;
   width: 18px;

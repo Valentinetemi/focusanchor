@@ -237,7 +237,6 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     for (const fn of changes) fn({ focusAnchor: { newValue: structuredClone(stored.focusAnchor) } }, 'local');
     await eventually(() => /^1:02:\d{2}$/.test(document.querySelector('time')?.textContent.trim() ?? ''));
     assert.match(document.querySelector('time').getAttribute('aria-label'), /1 hour 2 minutes \d+ seconds elapsed/);
-    assert.ok(document.querySelector('[aria-label="Capybara"]'));
 
     notifications.length = 0;
     openButton(keptTab.title).click();

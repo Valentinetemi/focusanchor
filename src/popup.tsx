@@ -135,19 +135,6 @@ function EmptyState() {
   );
 }
 
-function Capybara() {
-  return (
-    <svg className="capybara" viewBox="0 0 64 36" width="22" height="12" role="img" aria-label="Capybara" fill="currentColor">
-      <ellipse cx="38" cy="20" rx="20" ry="9.5" />
-      <ellipse cx="18" cy="18" rx="12" ry="8" />
-      <ellipse cx="14.5" cy="10" rx="2.8" ry="3.2" />
-      <ellipse cx="7" cy="20.5" rx="4.2" ry="2.7" />
-      <circle cx="15" cy="16.6" r="1.15" fill="#ffffff" />
-      <path d="M26 28.2v4.2M38 28.6v3.8" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function App() {
   const [state, setState] = useState<State | null>(null);
   const [tab, setTab] = useState<ActiveTab | null>(null);
@@ -391,9 +378,6 @@ function App() {
               : <ul>{cards(popupTabs)}</ul>}
           </section>
         </>}
-        <footer className="colophon">
-          <Capybara />
-        </footer>
       </div>
     </main>
   );
