@@ -35,6 +35,34 @@ export type Command =
 
 export type Reply = { ok: true; notice?: string } | { ok: false; error: string };
 
+export interface Elapsed {
+  display: string;
+  label: string;
+  dateTime: string;
+}
+
+export function formatElapsed(startedAt: number, now: number): Elapsed {
+  const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const display = hours > 0
+    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
+    : `${minutes}:${pad(seconds)}`;
+  const unit = (value: number, name: string) => `${value} ${name}${value === 1 ? '' : 's'}`;
+  const spoken = [
+    hours > 0 ? unit(hours, 'hour') : '',
+    unit(minutes, 'minute'),
+    unit(seconds, 'second'),
+  ].filter(Boolean).join(' ');
+  return {
+    display,
+    label: `${spoken} elapsed`,
+    dateTime: `PT${hours}H${minutes}M${seconds}S`,
+  };
+}
+
 export function isWebUrl(value: string | undefined): value is string {
   if (!value) return false;
   try {
