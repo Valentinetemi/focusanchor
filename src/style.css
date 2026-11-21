@@ -1,18 +1,20 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --text: #f7f9ff;
-  --note: #e7eaf8;
-  --line: rgba(255, 255, 255, 0.28);
-  --hairline: rgba(255, 255, 255, 0.22);
+  --note: #eef1fb;
+  --line: rgba(255, 255, 255, 0.72);
+  --hairline: rgba(255, 255, 255, 0.55);
+  --shadow: 0 1px 1px rgba(36, 48, 110, 0.45), 0 0 12px rgba(36, 48, 110, 0.28);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif;
   font-size: 15px;
   line-height: 1.35;
   color: var(--text);
   font-synthesis: none;
+  text-shadow: var(--shadow);
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: #24306e; }
+body { margin: 0; background: #d4e4ff; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
@@ -24,10 +26,10 @@ summary { cursor: pointer; }
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(220px 160px at 8% 0%, rgba(126, 182, 255, 0.95), transparent 68%),
-    radial-gradient(240px 180px at 100% 8%, rgba(198, 160, 255, 0.9), transparent 70%),
-    radial-gradient(200px 140px at 70% 100%, rgba(96, 150, 255, 0.55), transparent 70%),
-    linear-gradient(165deg, #2c3f92 0%, #3a3a86 52%, #4a3d88 100%);
+    radial-gradient(280px 200px at 0% 0%, rgba(188, 220, 255, 0.95), transparent 70%),
+    radial-gradient(260px 200px at 100% 0%, rgba(217, 208, 255, 0.95), transparent 68%),
+    radial-gradient(220px 160px at 80% 100%, rgba(176, 206, 255, 0.8), transparent 70%),
+    linear-gradient(165deg, #bcdcff 0%, #d4e6ff 46%, #d9d0ff 100%);
 }
 .popup { width: 340px; max-height: 600px; overflow-x: hidden; overflow-y: auto; }
 .dashboard { min-height: 100vh; padding: 28px 16px 40px; }
@@ -44,14 +46,14 @@ summary { cursor: pointer; }
   height: 160px;
   top: -40px;
   left: -30px;
-  background: rgba(130, 186, 255, 0.85);
+  background: rgba(188, 220, 255, 0.95);
 }
 .popup::after, .dashboard::after {
   width: 170px;
   height: 170px;
   right: -40px;
   bottom: 40px;
-  background: rgba(190, 150, 255, 0.75);
+  background: rgba(217, 208, 255, 0.9);
 }
 
 .glass {
@@ -66,10 +68,10 @@ summary { cursor: pointer; }
   padding: 18px 16px 14px;
   overflow: hidden;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  border-top-color: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 18px 40px rgba(16, 18, 48, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-top-color: #ffffff;
+  box-shadow: 0 16px 36px rgba(90, 110, 170, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(28px) saturate(1.6);
   -webkit-backdrop-filter: blur(28px) saturate(1.6);
 }
@@ -183,6 +185,7 @@ input::placeholder, textarea::placeholder { color: var(--note); }
   background: rgba(255, 255, 255, 0.92);
   border-color: rgba(255, 255, 255, 0.92);
   color: #1c2030;
+  text-shadow: none;
 }
 .glass-pill:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
 .solid-pill:hover:not(:disabled) { background: #ffffff; }
@@ -232,9 +235,12 @@ input::placeholder, textarea::placeholder { color: var(--note); }
   min-width: 180px;
   padding: 10px;
   border-radius: 14px;
-  background: rgba(28, 34, 78, 0.92);
+  background: rgba(255, 255, 255, 0.88);
+  color: #1c2030;
+  text-shadow: none;
   border: 1px solid var(--hairline);
 }
+.menu-panel p, .menu-panel .saved-status, .menu-panel .domain { color: #1c2030; text-shadow: none; }
 .saved-status { font-size: 12px; color: var(--note); }
 .muted, .empty p { color: var(--note); }
 .empty { display: grid; gap: 10px; }
