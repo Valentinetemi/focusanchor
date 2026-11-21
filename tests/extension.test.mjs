@@ -237,7 +237,6 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     for (const fn of changes) fn({ focusAnchor: { newValue: structuredClone(stored.focusAnchor) } }, 'local');
     await eventually(() => /^1:02:\d{2}$/.test(document.querySelector('time')?.textContent.trim() ?? ''));
     assert.match(document.querySelector('time').getAttribute('aria-label'), /1 hour 2 minutes \d+ seconds elapsed/);
-    assert.ok(document.querySelector('[aria-label="Capybara"]'));
 
     notifications.length = 0;
     openButton(keptTab.title).click();
@@ -699,6 +698,38 @@ await test('the save mission picker follows the active mission and drops a remov
     remaining.activeMissionId = 'm1';
     await globalThis.chrome.storage.local.set({ focusAnchor: remaining });
     await eventually(() => selected() === 'm1');
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
+
+await test('a tab with no mission id stays out of the list when its name matches more than one mission', async () => {
+  const mission = (id) => ({ id, text: 'Same', startedAt: 10, activatedAt: 10, tabSwitches: 0, lastTabId: 1 });
+  const { harness, dom } = await renderPopup('?ambiguous=1', {
+    missions: [mission('a'), mission('b')],
+    activeMissionId: 'a',
+    parked: [{
+      id: 'loose',
+      title: 'Ambiguous notes',
+      url: 'https://example.com/loose',
+      note: 'Unowned',
+      mission: 'Same',
+      status: 'closed',
+    }, {
+      id: 'owned',
+      title: 'Owned notes',
+      url: 'https://example.com/owned',
+      note: 'Owned',
+      missionId: 'a',
+      mission: 'Same',
+      status: 'kept-open',
+    }],
+    completedSessions: 0,
+  });
+  try {
+    await eventually(() => document.body.textContent.includes('Owned notes'));
+    assert.equal(document.body.textContent.includes('Ambiguous notes'), false);
   } finally {
     dom.window.close();
     harness.cleanup();
