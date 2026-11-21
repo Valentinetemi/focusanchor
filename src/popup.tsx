@@ -103,8 +103,8 @@ function Capybara() {
       <ellipse cx="18" cy="18" rx="12" ry="8" />
       <ellipse cx="14.5" cy="10" rx="2.8" ry="3.2" />
       <ellipse cx="7" cy="20.5" rx="4.2" ry="2.7" />
-      <circle cx="15" cy="16.6" r="1.15" fill="#10161c" />
-      <path d="M26 28.2v4.2M38 28.6v3.8" stroke="#10161c" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="15" cy="16.6" r="1.15" fill="#ffffff" />
+      <path d="M26 28.2v4.2M38 28.6v3.8" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -262,11 +262,11 @@ function App() {
             )}
           </section>
 
-          <section className="stats" aria-label="Focus dashboard">
-            <div><strong>{state.parked.length}</strong><span>Saved tabs</span></div>
-            <div><strong>{state.mission?.tabSwitches ?? '—'}</strong><span>Tab switches</span></div>
-            <div><strong>{state.completedSessions}</strong><span>Sessions finished</span></div>
-          </section>
+          <p className="stats" aria-label="Focus dashboard">
+            <span><strong>{state.parked.length}</strong> saved</span>
+            <span><strong>{state.mission?.tabSwitches ?? '—'}</strong> switches</span>
+            <span><strong>{state.completedSessions}</strong> sessions</span>
+          </p>
 
           {!dashboard && <section className="parking panel" aria-labelledby="park-heading">
             <h2 id="park-heading">Save this tab</h2>
