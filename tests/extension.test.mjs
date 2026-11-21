@@ -656,3 +656,51 @@ await test('retrying a start reuses the mission instead of creating another', as
     harness.cleanup();
   }
 });
+
+async function renderPopup(search, seed) {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const popupScript = await readFile(new URL(manifest.action.default_popup, dist), 'utf8')
+    .then((html) => html.match(/src="([^"]+\.js)"/)?.[1]);
+  assert.ok(popupScript);
+  const harness = installMissionChrome(seed);
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', {
+    url: `https://focusanchor.test/popup.html${search}`,
+  });
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    location: dom.window.location,
+    MutationObserver: dom.window.MutationObserver,
+  });
+  await import(new URL(`${popupScript}${search}`, dist));
+  return { harness, dom };
+}
+
+await test('the save mission picker follows the active mission and drops a removed one', async () => {
+  const mission = (id, text, activatedAt) => ({
+    id, text, startedAt: activatedAt, activatedAt, tabSwitches: 0, lastTabId: 1,
+  });
+  const { harness, dom } = await renderPopup('?picker=1', {
+    missions: [mission('m1', 'First', 10), mission('m2', 'Second', 20)],
+    activeMissionId: 'm1',
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    const selected = () => document.querySelector('#save-mission')?.value;
+    await eventually(() => selected() === 'm1');
+    const next = structuredClone(harness.read());
+    next.activeMissionId = 'm2';
+    await globalThis.chrome.storage.local.set({ focusAnchor: next });
+    await eventually(() => selected() === 'm2');
+    const remaining = structuredClone(harness.read());
+    remaining.missions = remaining.missions.filter((item) => item.id === 'm1');
+    remaining.activeMissionId = 'm1';
+    await globalThis.chrome.storage.local.set({ focusAnchor: remaining });
+    await eventually(() => selected() === 'm1');
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});

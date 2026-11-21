@@ -151,6 +151,7 @@ function App() {
   const [now, setNow] = useState(Date.now());
   const noteLoadedFor = useRef<string | null>(null);
   const missionLoadedFor = useRef<string | null>(null);
+  const activeMissionSeen = useRef<string | null>(null);
   const startId = useRef<string | null>(null);
   const tabRef = useRef<ActiveTab | null>(null);
   tabRef.current = tab;
@@ -196,13 +197,24 @@ function App() {
 
   useEffect(() => {
     if (!state || !tab || noteLoadedFor.current === tab.url) return;
-    const saved = state.parked.find((item) => item.url === tab.url);
-    setNote(saved?.note ?? '');
+    setNote(state.parked.find((item) => item.url === tab.url)?.note ?? '');
     noteLoadedFor.current = tab.url;
-    if (missionLoadedFor.current !== tab.url) {
-      setSaveMissionId(saved?.missionId ?? state.activeMissionId);
-      missionLoadedFor.current = tab.url;
-    }
+  }, [state, tab]);
+
+  useEffect(() => {
+    if (!state) return;
+    const ids = new Set(state.missions.map((mission) => mission.id));
+    const activeId = state.activeMissionId && ids.has(state.activeMissionId) ? state.activeMissionId : null;
+    const saved = tab ? state.parked.find((item) => item.url === tab.url) : undefined;
+    const tabChanged = missionLoadedFor.current !== (tab?.url ?? null);
+    const activeChanged = activeMissionSeen.current !== state.activeMissionId;
+    missionLoadedFor.current = tab?.url ?? null;
+    activeMissionSeen.current = state.activeMissionId;
+    setSaveMissionId((current) => {
+      if (tabChanged) return saved?.missionId && ids.has(saved.missionId) ? saved.missionId : activeId;
+      if (activeChanged || !current || !ids.has(current)) return activeId;
+      return current;
+    });
   }, [state, tab]);
 
   async function send(command: Command) {
@@ -250,13 +262,20 @@ function App() {
   function saveTab(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    if (tab) void send({
+    if (!tab || !state) return;
+    const ids = new Set(state.missions.map((mission) => mission.id));
+    const missionId = saveMissionId && ids.has(saveMissionId)
+      ? saveMissionId
+      : state.activeMissionId && ids.has(state.activeMissionId)
+        ? state.activeMissionId
+        : null;
+    void send({
       type: 'save',
       tabId: tab.id,
       url: tab.url,
       note,
       close: submitter?.value === 'close',
-      ...(saveMissionId ? { missionId: saveMissionId } : {}),
+      ...(missionId ? { missionId } : {}),
     });
   }
 
