@@ -136,11 +136,14 @@ export function normalizeState(value: unknown): State {
       typeof item.id === 'string' && typeof item.title === 'string' && isWebUrl(item.url)
     )).map((item) => {
       const missionText = typeof item.mission === 'string' ? item.mission : null;
-      const explicit = typeof item.missionId === 'string' ? item.missionId : null;
-      const matched = explicit && missions.some((mission) => mission.id === explicit)
-        ? explicit
-        : missions.filter((mission) => mission.text === missionText);
-      const missionId = typeof matched === 'string' ? matched : matched.length === 1 ? matched[0].id : null;
+      const explicit = typeof item.missionId === 'string' && item.missionId ? item.missionId : null;
+      let missionId: string | null = null;
+      if (explicit) {
+        missionId = explicit;
+      } else if (missionText) {
+        const matches = missions.filter((mission) => mission.text === missionText);
+        if (matches.length === 1) missionId = matches[0].id;
+      }
       return {
         id: item.id!,
         title: item.title!,

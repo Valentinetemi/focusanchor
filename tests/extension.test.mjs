@@ -529,3 +529,86 @@ await test('a saved single mission migrates and more than one mission can stay a
     delete globalThis.chrome;
   }
 });
+
+function installMissionChrome(seed) {
+  const tabs = new Map([[1, { id: 1, windowId: 1, url: 'https://example.com/work', title: 'Work', active: true }]]);
+  const changes = new Set();
+  let stored = { focusAnchor: seed };
+  let session = {};
+  let messageHandler;
+  const sender = { id: `focusanchor-${seed.activeMissionId ?? 'review'}` };
+  globalThis.chrome = {
+    runtime: {
+      id: sender.id,
+      getURL: (path) => `chrome-extension://${sender.id}/${path}`,
+      onMessage: { addListener: (fn) => { messageHandler = fn; } },
+      sendMessage: (request) => new Promise((resolve) => messageHandler(request, sender, resolve)),
+    },
+    storage: {
+      onChanged: { addListener: (fn) => changes.add(fn), removeListener: (fn) => changes.delete(fn) },
+      local: {
+        get: async () => structuredClone(stored),
+        set: async (data) => {
+          stored = structuredClone(data);
+          for (const fn of changes) fn({ focusAnchor: { newValue: stored.focusAnchor } }, 'local');
+        },
+      },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
+      },
+    },
+    notifications: { create: async () => 'note' },
+    tabs: {
+      query: async () => [...tabs.values()].map((tab) => ({ ...tab })),
+      get: async (id) => {
+        if (!tabs.has(id)) throw new Error(`No tab with id: ${id}`);
+        return { ...tabs.get(id) };
+      },
+      update: async (id, properties) => ({ ...tabs.get(id), ...properties }),
+      remove: async (id) => { tabs.delete(id); },
+      create: async ({ url }) => {
+        const tab = { id: 9, windowId: 1, url, title: url, active: true };
+        tabs.set(tab.id, tab);
+        return { ...tab };
+      },
+      onActivated: { addListener() {} },
+      onRemoved: { addListener() {}, removeListener() {} },
+      onUpdated: { addListener() {}, removeListener() {} },
+    },
+    windows: { update: async (id, properties) => ({ id, ...properties }) },
+  };
+  return {
+    tabs,
+    send: (...args) => globalThis.chrome.runtime.sendMessage(...args),
+    read: () => stored.focusAnchor,
+    cleanup: () => { delete globalThis.chrome; },
+  };
+}
+
+await test('an explicit mission id is not reassigned when another mission has the same name', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({
+    missions: [{ id: 'live', text: 'Same', startedAt: 10, activatedAt: 20, tabSwitches: 0, lastTabId: 1 }],
+    activeMissionId: 'live',
+    parked: [{
+      id: 'old-tab',
+      title: 'Old notes',
+      url: 'https://example.com/old',
+      note: 'From the finished mission',
+      missionId: 'finished',
+      mission: 'Same',
+      status: 'closed',
+    }],
+    completedSessions: 0,
+  });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?explicit-mission=1`, dist));
+    assert.equal((await harness.send({ type: 'activate', id: 'live' })).ok, true);
+    assert.equal(harness.read().parked[0].missionId, 'finished');
+    assert.equal(harness.read().parked[0].mission, 'Same');
+  } finally {
+    harness.cleanup();
+  }
+});
