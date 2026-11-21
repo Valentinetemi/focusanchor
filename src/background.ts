@@ -133,10 +133,17 @@ async function apply(command: Command): Promise<Reply> {
     case 'start': {
       const value = command.text.trim();
       if (!value || value.length > MISSION_LIMIT) throw new Error('Enter a mission of up to 100 characters.');
+      const existing = command.id ? state.missions.find((mission) => mission.id === command.id) : undefined;
+      if (existing) {
+        if (state.activeMissionId !== existing.id) {
+          await save({ ...state, activeMissionId: existing.id });
+        }
+        break;
+      }
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       const now = Date.now();
       const mission: Mission = {
-        id: crypto.randomUUID(),
+        id: command.id || crypto.randomUUID(),
         text: value,
         startedAt: now,
         activatedAt: now,

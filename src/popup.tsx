@@ -151,6 +151,7 @@ function App() {
   const [now, setNow] = useState(Date.now());
   const noteLoadedFor = useRef<string | null>(null);
   const missionLoadedFor = useRef<string | null>(null);
+  const startId = useRef<string | null>(null);
   const tabRef = useRef<ActiveTab | null>(null);
   tabRef.current = tab;
 
@@ -220,7 +221,10 @@ function App() {
         }
         return;
       }
-      if (command.type === 'start') setMissionText('');
+      if (command.type === 'start') {
+        setMissionText('');
+        startId.current = null;
+      }
       if (command.type === 'save') {
         setMessage(reply.notice ?? (command.close ? 'Note saved and tab closed.' : 'Note saved. Tab kept open.'));
         if (command.close) {
@@ -239,7 +243,8 @@ function App() {
 
   function start(event: FormEvent) {
     event.preventDefault();
-    void send({ type: 'start', text: missionText });
+    if (!startId.current) startId.current = crypto.randomUUID();
+    void send({ type: 'start', text: missionText, id: startId.current });
   }
 
   function saveTab(event: FormEvent<HTMLFormElement>) {

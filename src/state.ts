@@ -31,7 +31,7 @@ export interface State {
 export const initialState: State = { missions: [], activeMissionId: null, parked: [], completedSessions: 0 };
 
 export type Command =
-  | { type: 'start'; text: string }
+  | { type: 'start'; text: string; id?: string }
   | { type: 'finish'; id?: string }
   | { type: 'activate'; id: string }
   | { type: 'save'; tabId: number; url: string; note: string; close: boolean; missionId?: string | null }

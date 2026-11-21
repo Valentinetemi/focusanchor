@@ -637,3 +637,22 @@ await test('a save aimed at a finished mission uses the active mission', async (
     harness.cleanup();
   }
 });
+
+await test('retrying a start reuses the mission instead of creating another', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({ missions: [], activeMissionId: null, parked: [], completedSessions: 0 });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?idempotent-start=1`, dist));
+    const first = await harness.send({ type: 'start', text: 'One mission', id: 'start-1' });
+    const second = await harness.send({ type: 'start', text: 'One mission', id: 'start-1' });
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(harness.read().missions.length, 1);
+    assert.equal(harness.read().missions[0].id, 'start-1');
+    assert.equal(harness.read().missions[0].text, 'One mission');
+    assert.equal(harness.read().activeMissionId, 'start-1');
+  } finally {
+    harness.cleanup();
+  }
+});
