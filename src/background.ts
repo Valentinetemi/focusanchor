@@ -108,7 +108,8 @@ async function showSavedNote(item: SavedTab) {
 function chosenMission(state: State, existing: SavedTab | undefined, requested: string | null | undefined) {
   if (requested === null) return { missionId: null, mission: null };
   if (requested === undefined && existing) return { missionId: existing.missionId, mission: existing.mission };
-  const mission = state.missions.find((item) => item.id === (requested ?? state.activeMissionId));
+  const requestedMission = requested ? state.missions.find((item) => item.id === requested) : undefined;
+  const mission = requestedMission ?? state.missions.find((item) => item.id === state.activeMissionId);
   return mission ? { missionId: mission.id, mission: mission.text } : { missionId: null, mission: null };
 }
 

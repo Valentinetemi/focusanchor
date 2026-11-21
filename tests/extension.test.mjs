@@ -612,3 +612,28 @@ await test('an explicit mission id is not reassigned when another mission has th
     harness.cleanup();
   }
 });
+
+await test('a save aimed at a finished mission uses the active mission', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const harness = installMissionChrome({
+    missions: [
+      { id: 'gone', text: 'Finished', startedAt: 10, activatedAt: 10, tabSwitches: 0, lastTabId: 1 },
+      { id: 'live', text: 'Current', startedAt: 20, activatedAt: 30, tabSwitches: 0, lastTabId: 1 },
+    ],
+    activeMissionId: 'live',
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?fallback-mission=1`, dist));
+    assert.equal((await harness.send({ type: 'finish', id: 'gone' })).ok, true);
+    assert.equal((await harness.send({
+      type: 'save', tabId: 1, url: 'https://example.com/work', note: 'Still current', close: false, missionId: 'gone',
+    })).ok, true);
+    assert.equal(harness.read().parked[0].missionId, 'live');
+    assert.equal(harness.read().parked[0].mission, 'Current');
+  } finally {
+    harness.cleanup();
+  }
+});
