@@ -12,7 +12,7 @@ It fits a productivity session: each mission keeps its own timer, and the tabs y
 
 ![FocusAnchor dashboard with the mission timer and saved tab cards](docs/dashboard.png)
 
-The popup screenshot shows the full layout. In Chrome the popup is about 600 pixels tall and the rest scrolls.
+The popup is a single glass panel, about 340 pixels wide. In Chrome it scrolls only if the saved-tab list grows past the popup height.
 
 ## Install locally
 
