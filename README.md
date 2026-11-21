@@ -4,7 +4,7 @@ You open a tab meaning to come back to it, then forget why it was open.
 
 **FocusAnchor saves the thought with the tab.** Start a mission, write a note on a distracting page, keep that tab open or close it, and reopen it later with the note still attached.
 
-It fits a productivity session: one mission stays in view with a live timer, and the tabs you parked stay recoverable without losing the reason they mattered.
+It fits a productivity session: each mission keeps its own timer, and the tabs you parked stay recoverable without losing the reason they mattered.
 
 ## Screenshots
 
@@ -29,13 +29,13 @@ npm run build
 
 ## Try it
 
-1. Open two ordinary websites in the same window. Open FocusAnchor and start a mission, such as “Finish my hackathon submission.” The timer under the mission counts every second as `m:ss`, and as `h:mm:ss` once an hour has passed.
-2. Switch to the other website. Open FocusAnchor, enter a note, and choose **Save note & keep open** or **Save note & close tab**. Saving the same URL again updates its note.
+1. Open two ordinary websites in the same window. Open FocusAnchor and start a mission, such as “Finish my hackathon submission.” Add another with **Add** if you are juggling more than one. The active mission’s timer counts every second as `m:ss`, and as `h:mm:ss` once an hour has passed. The mission menu switches which timer is active.
+2. Switch to the other website. Open FocusAnchor, enter a note, choose the mission (it starts as the active one), and choose **Save note & keep open** or **Save note & close tab**. Saving the same URL again updates its note.
 3. Open FocusAnchor again. Each saved tab is a card with its icon, title, domain, note, and whether it is still open. **Open** brings the page back and shows a Chrome notification with the title and note. Opening a closed tab marks it kept open. Closing a kept-open tab marks it closed. **Remove** deletes the saved entry.
 4. If that tab is already gone, FocusAnchor asks you to open it again from the current page.
-5. Open **Dashboard** for the full-page view. **Finish session** clears the mission and adds one to the completed-session count.
+5. Open **Dashboard** for the full-page view. Saved tabs are grouped by mission. **Finish** ends that mission only and adds one to the completed-session count. An older single-mission save is kept as one mission in the list.
 
-The switch count is how many times the active tab changed during the mission, including changes caused by opening or closing tabs. Saved tabs is the number of unique URLs currently saved.
+The switch count is how many times the active tab changed during the active mission, including changes caused by opening or closing tabs. Saved tabs is the number of unique URLs currently saved.
 
 ## Test
 

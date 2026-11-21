@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { formatElapsed, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
+import { activeMission, formatElapsed, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
 import type { Command, Reply, SavedTab, State } from './state';
 import './style.css';
 
@@ -83,6 +83,37 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
   );
 }
 
+function missionGroups(state: State) {
+  const grouped = new Map<string, { title: string; items: SavedTab[] }>();
+  const loose: SavedTab[] = [];
+  for (const item of state.parked) {
+    const mission = state.missions.find((entry) => entry.id === item.missionId);
+    const key = mission?.id ?? (item.mission ? `name:${item.mission}` : '');
+    const title = mission?.text ?? item.mission;
+    if (!key || !title) {
+      loose.push(item);
+      continue;
+    }
+    const group = grouped.get(key) ?? { title, items: [] };
+    group.items.push(item);
+    grouped.set(key, group);
+  }
+  const ordered = [...state.missions]
+    .sort((a, b) => b.activatedAt - a.activatedAt)
+    .flatMap((mission) => {
+      const group = grouped.get(mission.id);
+      return group ? [{ key: mission.id, ...group }] : [];
+    });
+  const named = [...grouped.entries()]
+    .filter(([key]) => !ordered.some((group) => group.key === key))
+    .map(([key, group]) => ({ key, ...group }));
+  return [
+    ...ordered,
+    ...named,
+    ...(loose.length ? [{ key: 'none', title: 'No mission', items: loose }] : []),
+  ];
+}
+
 function EmptyState() {
   return (
     <div className="empty">
@@ -113,11 +144,13 @@ function App() {
   const [state, setState] = useState<State | null>(null);
   const [tab, setTab] = useState<ActiveTab | null>(null);
   const [missionText, setMissionText] = useState('');
+  const [saveMissionId, setSaveMissionId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const noteLoadedFor = useRef<string | null>(null);
+  const missionLoadedFor = useRef<string | null>(null);
   const tabRef = useRef<ActiveTab | null>(null);
   tabRef.current = tab;
 
@@ -137,6 +170,7 @@ function App() {
     const onRemoved = (tabId: number) => {
       if (tabRef.current?.id !== tabId) return;
       noteLoadedFor.current = null;
+      missionLoadedFor.current = null;
       setTab(null);
       setNote('');
       void readActiveTab(tabId).then((next) => { if (active) setTab(next); });
@@ -161,8 +195,13 @@ function App() {
 
   useEffect(() => {
     if (!state || !tab || noteLoadedFor.current === tab.url) return;
-    setNote(state.parked.find((item) => item.url === tab.url)?.note ?? '');
+    const saved = state.parked.find((item) => item.url === tab.url);
+    setNote(saved?.note ?? '');
     noteLoadedFor.current = tab.url;
+    if (missionLoadedFor.current !== tab.url) {
+      setSaveMissionId(saved?.missionId ?? state.activeMissionId);
+      missionLoadedFor.current = tab.url;
+    }
   }, [state, tab]);
 
   async function send(command: Command) {
@@ -175,6 +214,7 @@ function App() {
         setMessage(error);
         if (command.type === 'save' && /no longer open/i.test(error)) {
           noteLoadedFor.current = null;
+          missionLoadedFor.current = null;
           setNote('');
           setTab(await readActiveTab(command.tabId));
         }
@@ -185,6 +225,7 @@ function App() {
         setMessage(reply.notice ?? (command.close ? 'Note saved and tab closed.' : 'Note saved. Tab kept open.'));
         if (command.close) {
           noteLoadedFor.current = null;
+          missionLoadedFor.current = null;
           setNote('');
           setTab(await readActiveTab(command.tabId));
         }
@@ -210,6 +251,7 @@ function App() {
       url: tab.url,
       note,
       close: submitter?.value === 'close',
+      ...(saveMissionId ? { missionId: saveMissionId } : {}),
     });
   }
 
@@ -218,7 +260,28 @@ function App() {
       .catch(() => setMessage('Could not open the dashboard.'));
   }
 
-  const elapsed = state?.mission ? formatElapsed(state.mission.startedAt, now) : null;
+  const current = state ? activeMission(state) : null;
+  const elapsed = current ? formatElapsed(current.startedAt, now) : null;
+  const orderedMissions = state ? [...state.missions].sort((a, b) => {
+    if (a.id === state.activeMissionId) return -1;
+    if (b.id === state.activeMissionId) return 1;
+    return b.activatedAt - a.activatedAt;
+  }) : [];
+  const cards = (items: SavedTab[]) => items.map((item) => (
+    <SavedCard key={item.id} item={item} busy={busy}
+      onOpen={() => void send({ type: 'open', id: item.id })}
+      onRemove={() => void send({ type: 'remove', id: item.id })} />
+  ));
+  const missionForm = (
+    <form className="new-mission" onSubmit={start}>
+      <label className="sr-only" htmlFor="mission">{state?.missions.length ? 'New mission' : 'What are you working on?'}</label>
+      <input id="mission" placeholder={state?.missions.length ? 'New mission' : 'What are you working on?'} required autoComplete="off"
+        maxLength={MISSION_LIMIT} value={missionText} onChange={(event) => setMissionText(event.target.value)} />
+      <button type="submit" className="primary" disabled={busy || !missionText.trim()}>
+        {state?.missions.length ? 'Add' : 'Start mission'}
+      </button>
+    </form>
+  );
 
   return (
     <main className={dashboard ? 'dashboard' : 'popup'}>
@@ -237,34 +300,44 @@ function App() {
         {message && <p className="notice" role="status">{message}</p>}
         {!state ? !message && <p className="muted" role="status">Loading your dashboard…</p> : <>
           <section className="mission panel" aria-labelledby="mission-heading">
-            {state.mission && elapsed ? <>
+            <h2 id="mission-heading"><span className="live-dot" aria-hidden="true" />{dashboard ? 'Missions' : 'Current mission'}</h2>
+            {dashboard ? <>
+              {orderedMissions.length > 0 && <ul className="mission-list">{orderedMissions.map((mission) => {
+                const timing = formatElapsed(mission.startedAt, now);
+                const selected = mission.id === state.activeMissionId;
+                return (
+                  <li key={mission.id} className={selected ? 'mission-row is-active' : 'mission-row'}>
+                    <button type="button" className="mission-pick" aria-pressed={selected}
+                      onClick={() => void send({ type: 'activate', id: mission.id })}>{mission.text}</button>
+                    <time dateTime={timing.dateTime} aria-label={timing.label}>{timing.display}</time>
+                    <button type="button" className={selected ? 'finish' : 'quiet'} disabled={busy}
+                      onClick={() => void send({ type: 'finish', id: mission.id })}>Finish</button>
+                  </li>
+                );
+              })}</ul>}
+              {missionForm}
+            </> : current && elapsed ? <>
               <div className="mission-top">
-                <div className="mission-copy">
-                  <h2 id="mission-heading"><span className="live-dot" aria-hidden="true" />Current mission</h2>
-                  <p className="mission-title">{state.mission.text}</p>
-                </div>
+                <select className="mission-select" aria-label="Active mission" value={current.id}
+                  onChange={(event) => void send({ type: 'activate', id: event.target.value })}>
+                  {orderedMissions.map((mission) => <option key={mission.id} value={mission.id}>{mission.text}</option>)}
+                </select>
                 <div className="timer-block">
                   <span className="timer-kicker">Elapsed</span>
                   <time dateTime={elapsed.dateTime} aria-label={elapsed.label}>{elapsed.display}</time>
                 </div>
               </div>
               <div className="mission-footer">
-                <button type="button" className="finish" disabled={busy} onClick={() => void send({ type: 'finish' })}>Finish session</button>
+                <button type="button" className="finish" disabled={busy}
+                  onClick={() => void send({ type: 'finish', id: current.id })}>Finish</button>
               </div>
-            </> : (
-              <form onSubmit={start}>
-                <h2 id="mission-heading">Current mission</h2>
-                <label className="sr-only" htmlFor="mission">What are you working on?</label>
-                <input id="mission" placeholder="What are you working on?" required autoComplete="off"
-                  maxLength={MISSION_LIMIT} value={missionText} onChange={(event) => setMissionText(event.target.value)} />
-                <button type="submit" className="primary" disabled={busy || !missionText.trim()}>Start mission</button>
-              </form>
-            )}
+              {missionForm}
+            </> : missionForm}
           </section>
 
           <p className="stats" aria-label="Focus dashboard">
             <span><strong>{state.parked.length}</strong> saved</span>
-            <span><strong>{state.mission?.tabSwitches ?? '—'}</strong> switches</span>
+            <span><strong>{current?.tabSwitches ?? '—'}</strong> switches</span>
             <span><strong>{state.completedSessions}</strong> sessions</span>
           </p>
 
@@ -273,6 +346,13 @@ function App() {
             {tab ? <form onSubmit={saveTab}>
               <p className="tab-title">{tab.title}</p>
               <p className="domain">{domainOf(tab.url)}</p>
+              {state.missions.length > 0 && <>
+                <label htmlFor="save-mission">Mission</label>
+                <select id="save-mission" value={saveMissionId ?? current?.id ?? ''}
+                  onChange={(event) => setSaveMissionId(event.target.value)}>
+                  {state.missions.map((mission) => <option key={mission.id} value={mission.id}>{mission.text}</option>)}
+                </select>
+              </>}
               <label htmlFor="note">Note</label>
               <textarea id="note" rows={2} maxLength={NOTE_LIMIT} value={note}
                 onChange={(event) => setNote(event.target.value)} required placeholder="Why does this tab matter?" />
@@ -287,11 +367,14 @@ function App() {
 
           <section className="library" aria-labelledby="library-heading">
             <h2 id="library-heading">Saved tabs</h2>
-            {state.parked.length === 0 ? <EmptyState /> : <ul>{state.parked.map((item) => (
-              <SavedCard key={item.id} item={item} busy={busy}
-                onOpen={() => void send({ type: 'open', id: item.id })}
-                onRemove={() => void send({ type: 'remove', id: item.id })} />
-            ))}</ul>}
+            {state.parked.length === 0 ? <EmptyState /> : dashboard
+              ? missionGroups(state).map((group) => (
+                <div key={group.key} className="mission-group">
+                  <h3>{group.title}</h3>
+                  <ul>{cards(group.items)}</ul>
+                </div>
+              ))
+              : <ul>{cards(state.parked)}</ul>}
           </section>
         </>}
         <footer className="colophon">

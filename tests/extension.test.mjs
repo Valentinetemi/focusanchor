@@ -157,7 +157,8 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
   assert.equal((await send({ type: 'start', text: 'Finish my submission' })).ok, true);
   activate(2);
-  await eventually(() => stored.focusAnchor.mission.tabSwitches === 1);
+  const activeStored = () => stored.focusAnchor.missions.find((mission) => mission.id === stored.focusAnchor.activeMissionId);
+  await eventually(() => activeStored().tabSwitches === 1);
 
   const firstNote = 'Read the examples after submitting';
   assert.equal((await send({
@@ -170,6 +171,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     title: keptTab.title,
     url: keptTab.url,
     note: firstNote,
+    missionId: activeStored().id,
     mission: 'Finish my submission',
     status: 'kept-open',
   });
@@ -205,7 +207,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
   const keptId = stored.focusAnchor.parked.find((item) => item.url === keptTab.url).id;
   const closedId = stored.focusAnchor.parked.find((item) => item.url === closedTab.url).id;
-  stored.focusAnchor.mission.startedAt = Date.now() - 12_500;
+  activeStored().startedAt = Date.now() - 12_500;
   const dom = new JSDOM('<!doctype html><div id="root"></div>', {
     url: 'https://focusanchor.test/?dashboard',
   });
@@ -231,7 +233,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     const beforeTick = timer.textContent.trim();
     await eventually(() => document.querySelector('time').textContent.trim() !== beforeTick);
     assert.match(document.querySelector('time').textContent.trim(), /^\d+:\d{2}$/);
-    stored.focusAnchor.mission.startedAt = Date.now() - 3_723_000;
+    activeStored().startedAt = Date.now() - 3_723_000;
     for (const fn of changes) fn({ focusAnchor: { newValue: structuredClone(stored.focusAnchor) } }, 'local');
     await eventually(() => /^1:02:\d{2}$/.test(document.querySelector('time')?.textContent.trim() ?? ''));
     assert.match(document.querySelector('time').getAttribute('aria-label'), /1 hour 2 minutes \d+ seconds elapsed/);
@@ -268,7 +270,7 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     openButton(closedTab.title).click();
     await eventually(() => notifications.length === 1 && tabUpdates.some(({ id }) => id === reopened.id));
     assert.equal(createdTabs, 1);
-    await eventually(() => stored.focusAnchor.mission.tabSwitches === 5);
+    await eventually(() => activeStored().tabSwitches === 5);
 
     tabs.delete(reopened.id);
     for (const handler of removedHandlers) handler(reopened.id, { windowId: reopened.windowId, isWindowClosing: false });
@@ -305,7 +307,8 @@ await test('notes can keep tabs open, close safely, update, and open without dup
 
     document.querySelector('.finish').click();
     await eventually(() => stored.focusAnchor.completedSessions === 1);
-    assert.equal(stored.focusAnchor.mission, null);
+    assert.equal(stored.focusAnchor.activeMissionId, null);
+    assert.equal(stored.focusAnchor.missions.length, 0);
     assert.equal((await send({ type: 'remove', id: keptId })).ok, true);
     assert.equal((await send({ type: 'remove', id: closedId })).ok, true);
     assert.equal((await send({ type: 'remove', id: duplicate.id })).ok, true);
@@ -425,6 +428,104 @@ await test('a closed tab does not leave the popup holding a stale id', async () 
     assert.equal(stored.focusAnchor.parked[0].note, 'Keep the work tab in mind');
   } finally {
     dom.window.close();
+    delete globalThis.chrome;
+  }
+});
+
+await test('a saved single mission migrates and more than one mission can stay active', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  const startedAt = 1_700_000_000_000;
+  const notes = { id: 7, windowId: 1, url: 'https://example.com/notes', title: 'Notes', active: true };
+  const tabs = new Map([[7, notes]]);
+  let stored = {
+    focusAnchor: {
+      mission: { text: 'Write the outline', startedAt, tabSwitches: 4, lastTabId: 7 },
+      parked: [{
+        id: 'parked-notes',
+        title: 'Notes',
+        url: notes.url,
+        note: 'Outline source',
+        mission: 'Write the outline',
+        status: 'kept-open',
+      }],
+      completedSessions: 1,
+    },
+  };
+  let session = {};
+  let messageHandler;
+  const sender = { id: 'focusanchor-missions' };
+  globalThis.chrome = {
+    runtime: {
+      id: sender.id,
+      getURL: (path) => `chrome-extension://${sender.id}/${path}`,
+      onMessage: { addListener: (fn) => { messageHandler = fn; } },
+      sendMessage: (request) => new Promise((resolve) => messageHandler(request, sender, resolve)),
+    },
+    storage: {
+      onChanged: { addListener() {}, removeListener() {} },
+      local: {
+        get: async () => structuredClone(stored),
+        set: async (data) => { stored = structuredClone(data); },
+      },
+      session: {
+        get: async (key) => (typeof key === 'string' ? { [key]: session[key] } : structuredClone(session)),
+        set: async (data) => { session = { ...session, ...structuredClone(data) }; },
+      },
+    },
+    notifications: { create: async () => 'note' },
+    tabs: {
+      query: async () => [...tabs.values()].map((tab) => ({ ...tab })),
+      get: async (id) => {
+        if (!tabs.has(id)) throw new Error(`No tab with id: ${id}`);
+        return { ...tabs.get(id) };
+      },
+      update: async (id, properties) => ({ ...tabs.get(id), ...properties }),
+      remove: async (id) => { tabs.delete(id); },
+      create: async ({ url }) => {
+        const tab = { id: 8, windowId: 1, url, title: url, active: true };
+        tabs.set(tab.id, tab);
+        return { ...tab };
+      },
+      onActivated: { addListener() {} },
+      onRemoved: { addListener() {}, removeListener() {} },
+      onUpdated: { addListener() {}, removeListener() {} },
+    },
+    windows: { update: async (id, properties) => ({ id, ...properties }) },
+  };
+
+  try {
+    await import(new URL(`${manifest.background.service_worker}?missions=1`, dist));
+    const send = globalThis.chrome.runtime.sendMessage;
+    await eventually(() => stored.focusAnchor.missions?.length === 1);
+    const legacy = stored.focusAnchor.missions[0];
+    assert.equal(legacy.id, `legacy-${startedAt}`);
+    assert.equal(legacy.text, 'Write the outline');
+    assert.equal(legacy.tabSwitches, 4);
+    assert.equal(stored.focusAnchor.activeMissionId, legacy.id);
+    assert.equal(stored.focusAnchor.parked[0].missionId, legacy.id);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Write the outline');
+    assert.equal(stored.focusAnchor.completedSessions, 1);
+
+    assert.equal((await send({ type: 'start', text: 'Record the demo' })).ok, true);
+    assert.equal(stored.focusAnchor.missions.length, 2);
+    const demo = stored.focusAnchor.missions.find((mission) => mission.text === 'Record the demo');
+    assert.equal(stored.focusAnchor.activeMissionId, demo.id);
+    assert.equal((await send({
+      type: 'save', tabId: 7, url: notes.url, note: 'Demo shot list', close: false, missionId: demo.id,
+    })).ok, true);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Record the demo');
+    assert.equal(stored.focusAnchor.parked[0].missionId, demo.id);
+
+    assert.equal((await send({ type: 'activate', id: legacy.id })).ok, true);
+    assert.equal(stored.focusAnchor.activeMissionId, legacy.id);
+    assert.equal((await send({ type: 'finish', id: legacy.id })).ok, true);
+    assert.equal(stored.focusAnchor.missions.length, 1);
+    assert.equal(stored.focusAnchor.missions[0].id, demo.id);
+    assert.equal(stored.focusAnchor.activeMissionId, demo.id);
+    assert.equal(stored.focusAnchor.completedSessions, 2);
+    assert.equal(stored.focusAnchor.parked[0].mission, 'Record the demo');
+  } finally {
     delete globalThis.chrome;
   }
 });
