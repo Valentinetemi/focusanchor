@@ -763,3 +763,62 @@ await test('finished missions with the same name stay in separate groups', async
     harness.cleanup();
   }
 });
+
+await test('a save keeps the page summary and the route that drafted it', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  assert.ok(manifest.permissions.includes('scripting'));
+  const harness = installMissionChrome({
+    missions: [{ id: 'live', text: 'Current', startedAt: 20, activatedAt: 30, tabSwitches: 0, lastTabId: 1 }],
+    activeMissionId: 'live',
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    await import(new URL(`${manifest.background.service_worker}?summary=1`, dist));
+    assert.equal((await harness.send({
+      type: 'save',
+      tabId: 1,
+      url: 'https://example.com/work',
+      note: 'Compare the two APIs',
+      close: false,
+      summary: '  Docs for the Prompt API  ',
+      draftRoute: 'on-device',
+    })).ok, true);
+    assert.equal(harness.read().parked[0].summary, 'Docs for the Prompt API');
+    assert.equal(harness.read().parked[0].draftRoute, 'on-device');
+    assert.equal((await harness.send({
+      type: 'save',
+      tabId: 1,
+      url: 'https://example.com/work',
+      note: 'Compare the two APIs again',
+      close: false,
+      draftRoute: 'somewhere',
+    })).ok, true);
+    assert.equal(harness.read().parked[0].summary, 'Docs for the Prompt API');
+    assert.equal(harness.read().parked[0].draftRoute, 'on-device');
+    assert.equal(harness.read().parked[0].note, 'Compare the two APIs again');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+await test('suggest explains that firebase config is required', async () => {
+  const { harness, dom } = await renderPopup('?suggest=1', {
+    missions: [],
+    activeMissionId: null,
+    parked: [],
+    completedSessions: 0,
+  });
+  try {
+    const button = () => document.querySelector('.suggest');
+    await eventually(() => button() && document.body.textContent.includes('Work'));
+    assert.match(document.body.textContent, /On-device keeps page text on this computer/);
+    button().click();
+    await eventually(() => document.body.textContent.includes('firebase-config.js'));
+    assert.match(document.body.textContent, /Cloud fallback sends a short excerpt/);
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});

@@ -3,7 +3,7 @@
   "name": "FocusAnchor",
   "version": "0.1.0",
   "description": "Save the tab. Keep the thought.",
-  "permissions": ["activeTab", "storage", "tabs", "notifications", "favicon"],
+  "permissions": ["activeTab", "storage", "tabs", "notifications", "favicon", "scripting"],
   "incognito": "not_allowed",
   "icons": {
     "16": "icons/icon16.png",

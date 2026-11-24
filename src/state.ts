@@ -19,6 +19,8 @@ export interface SavedTab {
   missionId: string | null;
   mission: string | null;
   status: 'kept-open' | 'closed';
+  summary?: string;
+  draftRoute?: 'on-device' | 'cloud';
 }
 
 export interface State {
@@ -34,7 +36,7 @@ export type Command =
   | { type: 'start'; text: string; id?: string }
   | { type: 'finish'; id?: string }
   | { type: 'activate'; id: string }
-  | { type: 'save'; tabId: number; url: string; note: string; close: boolean; missionId?: string | null }
+  | { type: 'save'; tabId: number; url: string; note: string; close: boolean; missionId?: string | null; summary?: string; draftRoute?: 'on-device' | 'cloud' }
   | { type: 'open'; id: string }
   | { type: 'remove'; id: string };
 
@@ -144,7 +146,7 @@ export function normalizeState(value: unknown): State {
         const matches = missions.filter((mission) => mission.text === missionText);
         if (matches.length === 1) missionId = matches[0].id;
       }
-      return {
+      const saved: SavedTab = {
         id: item.id!,
         title: item.title!,
         url: item.url!,
@@ -153,6 +155,10 @@ export function normalizeState(value: unknown): State {
         mission: missionText ?? missions.find((mission) => mission.id === missionId)?.text ?? null,
         status: item.status === 'kept-open' ? 'kept-open' : 'closed',
       };
+      const summary = typeof item.summary === 'string' ? item.summary.replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+      if (summary) saved.summary = summary;
+      if (item.draftRoute === 'on-device' || item.draftRoute === 'cloud') saved.draftRoute = item.draftRoute;
+      return saved;
     }),
   };
 }

@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
+import { aiConfigured, askHybrid } from './hybrid';
+import { readPage } from './pageText';
+import {
+  CLOUD_EXCERPT,
+  clipText,
+  CONFIG_HINT,
+  DEVICE_EXCERPT,
+  draftPrompt,
+  friendlyAiError,
+  pageLocation,
+  parseDraft,
+  routeName,
+  SELECTION_LIMIT,
+  type DraftIdea,
+  type RouteLabel,
+} from './promptText';
 import { activeMission, formatElapsed, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
 import type { Command, Reply, SavedTab, State } from './state';
 import './style.css';
@@ -76,6 +92,7 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
       <div className="tab-copy">
         <p className="tab-title">{item.title}</p>
         <p className="note-preview">{item.note}</p>
+        {item.summary && <p className="summary-preview">{item.summary}</p>}
       </div>
       <details className="row-menu">
         <summary aria-label={`Actions for ${item.title}`}>⋯</summary>
@@ -83,6 +100,8 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
           <p className="domain">{domain}</p>
           <p className={`saved-status ${item.status}`}>{item.status === 'closed' ? 'Saved & closed' : 'Kept open'}</p>
           <p>{`Original mission: ${item.mission ?? 'None'}`}</p>
+          {item.summary && <p>{item.summary}</p>}
+          {item.draftRoute && <p>{routeName(item.draftRoute)}</p>}
           <button type="button" className="reopen" disabled={busy} aria-label={`Open ${item.title}`} onClick={onOpen}>Open</button>
           <button type="button" className="quiet" disabled={busy} aria-label={`Remove ${item.title}`} onClick={onRemove}>Remove</button>
         </div>
@@ -142,10 +161,15 @@ function App() {
   const [saveMissionId, setSaveMissionId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [draft, setDraft] = useState<(DraftIdea & { route: RouteLabel }) | null>(null);
+  const [draftNote, setDraftNote] = useState('');
+  const [drafting, setDrafting] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const noteLoadedFor = useRef<string | null>(null);
+  const seenUrl = useRef<string | null>(null);
+  const draftRequest = useRef(0);
   const missionLoadedFor = useRef<string | null>(null);
   const activeMissionSeen = useRef<string | null>(null);
   const startId = useRef<string | null>(null);
@@ -249,6 +273,60 @@ function App() {
     }
   }
 
+  async function suggest() {
+    if (!tab || !state) return;
+    if (!aiConfigured()) {
+      setMessage(CONFIG_HINT);
+      return;
+    }
+    const id = ++draftRequest.current;
+    setDrafting(true);
+    setMessage('');
+    try {
+      const page = await readPage(tab.id);
+      const selection = clipText(page?.selection ?? '', SELECTION_LIMIT);
+      const visible = page?.visibleText ?? '';
+      const deviceText = clipText(visible, DEVICE_EXCERPT);
+      const cloudText = clipText(visible, CLOUD_EXCERPT);
+      const missionChoices = state.missions.map((mission) => ({ id: mission.id, text: mission.text }));
+      const shared = {
+        title: page?.title || tab.title,
+        location: pageLocation(tab.url),
+        selection: selection.text,
+        missions: missionChoices,
+      };
+      const answer = await askHybrid(
+        draftPrompt({ ...shared, excerpt: deviceText.text, truncated: deviceText.truncated }),
+        draftPrompt({ ...shared, excerpt: cloudText.text, truncated: cloudText.truncated }),
+      );
+      const parsed = parseDraft(answer.text, missionChoices, NOTE_LIMIT);
+      if (id !== draftRequest.current) return;
+      if (!parsed) {
+        setMessage('The suggestion was not usable. You can still write the note yourself.');
+        return;
+      }
+      setDraft({ ...parsed, route: answer.route });
+      setDraftNote(parsed.note);
+    } catch (error) {
+      if (id !== draftRequest.current) return;
+      setMessage(friendlyAiError(error));
+    } finally {
+      if (id === draftRequest.current) setDrafting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!tab || !state) return;
+    if (seenUrl.current === tab.url) return;
+    seenUrl.current = tab.url;
+    setDraft(null);
+    setDraftNote('');
+    draftRequest.current += 1;
+    if (dashboard || !aiConfigured() || !chrome.scripting?.executeScript) return;
+    if (state.parked.some((item) => item.url === tab.url && item.note)) return;
+    void suggest();
+  }, [state, tab]);
+
   function start(event: FormEvent) {
     event.preventDefault();
     if (!startId.current) startId.current = crypto.randomUUID();
@@ -272,6 +350,8 @@ function App() {
       note,
       close: submitter?.value === 'close',
       ...(missionId ? { missionId } : {}),
+      ...(draft?.summary ? { summary: draft.summary } : {}),
+      ...(draft ? { draftRoute: draft.route } : {}),
     });
   }
 
@@ -359,6 +439,26 @@ function App() {
 
           {!dashboard && (tab ? <form className="note-form" onSubmit={saveTab}>
             <p className="tab-title">{tab.title}</p>
+            {drafting && <p className="muted" role="status">Reading this page…</p>}
+            {draft && <div className="suggestion">
+              <div className="suggestion-head">
+                <p className={draft.route === 'on-device' ? 'route on-device' : 'route cloud'}>
+                  <span className="route-dot" aria-hidden="true" />
+                  {routeName(draft.route)}
+                </p>
+                <button type="button" className="quiet" onClick={() => setDraft(null)}>Dismiss</button>
+              </div>
+              {draft.summary && <p className="summary-line">{draft.summary}</p>}
+              <label className="sr-only" htmlFor="suggestion">Suggested note</label>
+              <textarea id="suggestion" rows={2} maxLength={NOTE_LIMIT} value={draftNote}
+                onChange={(event) => setDraftNote(event.target.value)} />
+              <div className="save-actions">
+                <button type="button" className="glass-pill" onClick={() => setNote(draftNote.trim())}>Use this note</button>
+                <button type="button" className="quiet suggest" disabled={busy || drafting} onClick={() => void suggest()}>Try again</button>
+              </div>
+            </div>}
+            {!draft && <button type="button" className="quiet suggest" disabled={busy || drafting} onClick={() => void suggest()}>Suggest why</button>}
+            <p className="privacy">On-device keeps page text on this computer. Cloud fallback sends a short excerpt.</p>
             <label className="sr-only" htmlFor="note">Note for this tab</label>
             <textarea id="note" rows={2} maxLength={NOTE_LIMIT} value={note}
               onChange={(event) => setNote(event.target.value)} required placeholder="Note for this tab" />

@@ -105,6 +105,15 @@ async function showSavedNote(item: SavedTab) {
   }
 }
 
+function cleanSummary(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function cleanRoute(value: unknown): SavedTab['draftRoute'] {
+  return value === 'on-device' || value === 'cloud' ? value : undefined;
+}
+
 function chosenMission(state: State, existing: SavedTab | undefined, requested: string | null | undefined) {
   if (requested === null) return { missionId: null, mission: null };
   if (requested === undefined && existing) return { missionId: existing.missionId, mission: existing.mission };
@@ -189,6 +198,8 @@ async function apply(command: Command): Promise<Reply> {
       }
       const existing = state.parked.find((item) => item.url === tab.url);
       const belongs = chosenMission(state, existing, command.missionId);
+      const summary = cleanSummary(command.summary) || cleanSummary(existing?.summary);
+      const draftRoute = cleanRoute(command.draftRoute) ?? cleanRoute(existing?.draftRoute);
       const savedTab: SavedTab = {
         id: existing?.id ?? crypto.randomUUID(),
         title: tab.title || new URL(tab.url).hostname,
@@ -197,6 +208,8 @@ async function apply(command: Command): Promise<Reply> {
         missionId: belongs.missionId,
         mission: belongs.mission,
         status: 'kept-open',
+        ...(summary ? { summary } : {}),
+        ...(draftRoute ? { draftRoute } : {}),
       };
       await save({
         ...state,
