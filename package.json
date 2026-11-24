@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Park distracting tabs with a reason and recover the context later.",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --config vite.refocus.config.ts",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs tests/*.test.ts"
   },
   "type": "module",

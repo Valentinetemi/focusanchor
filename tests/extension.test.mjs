@@ -803,6 +803,22 @@ await test('a save keeps the page summary and the route that drafted it', async 
   }
 });
 
+await test('the refocus banner is bundled for saved tabs', async () => {
+  const dist = new URL('../dist/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', dist)));
+  assert.ok(manifest.permissions.includes('offscreen'));
+  assert.ok(manifest.host_permissions.includes('https://*/*'));
+  assert.ok(manifest.host_permissions.includes('http://*/*'));
+  const banner = await readFile(new URL('refocus.js', dist), 'utf8');
+  assert.match(banner, /Back to this/);
+  assert.match(banner, /On-device \(Gemini Nano\)/);
+  assert.match(banner, /Dismiss/);
+  const worker = await readFile(new URL(manifest.background.service_worker, dist), 'utf8');
+  assert.match(worker, /refocus-request/);
+  const offscreen = await readFile(new URL('offscreen.html', dist), 'utf8');
+  assert.match(offscreen, /offscreen/);
+});
+
 await test('suggest explains that firebase config is required', async () => {
   const { harness, dom } = await renderPopup('?suggest=1', {
     missions: [],

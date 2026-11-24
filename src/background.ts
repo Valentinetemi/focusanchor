@@ -1,3 +1,4 @@
+import { aiConfigured } from './configStatus';
 import { activeMission, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
 import type { Command, Mission, Reply, SavedTab, State } from './state';
 
@@ -254,6 +255,7 @@ async function apply(command: Command): Promise<Reply> {
       await saveTabMap(map);
       await save(markOpen(state, item.id));
       await showSavedNote(item);
+      queueRefocus(item, tabId);
       break;
     }
     case 'remove': {
@@ -269,8 +271,83 @@ async function apply(command: Command): Promise<Reply> {
   return { ok: true };
 }
 
-chrome.runtime.onMessage.addListener((command: Command, sender, respond) => {
-  if (sender.id !== chrome.runtime.id) return;
+function queueRefocus(item: SavedTab, tabId: number) {
+  if (!aiConfigured()) return;
+  void showRefocus(item, tabId).catch((error: unknown) => {
+    console.error('Could not show the refocus nudge.', error);
+  });
+}
+
+async function ensureOffscreen() {
+  if (!chrome.offscreen?.createDocument || !chrome.runtime.getContexts) return;
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+  });
+  if (existing.length > 0) return;
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: [chrome.offscreen.Reason.DOM_PARSER],
+    justification: 'Firebase App Check and Gemini Nano need a document the service worker does not have.',
+  });
+}
+
+function whenLoaded(tabId: number): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (id: number, info: chrome.tabs.OnUpdatedInfo) => {
+      if (id === tabId && info.status === 'complete') finish();
+    };
+    const timer = setTimeout(finish, 8000);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    void chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === 'complete') finish();
+    }).catch(() => finish());
+  });
+}
+
+async function requestRefocus(item: SavedTab): Promise<{ nudge: string; route: 'on-device' | 'cloud' } | null> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const reply = await chrome.runtime.sendMessage({
+        type: 'refocus-request',
+        title: item.title,
+        note: item.note,
+        summary: item.summary ?? '',
+        mission: item.mission,
+      });
+      if (reply?.ok && typeof reply.nudge === 'string') {
+        return { nudge: reply.nudge, route: reply.route === 'on-device' ? 'on-device' : 'cloud' };
+      }
+    } catch {
+      // The offscreen page is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
+  }
+  return null;
+}
+
+async function showRefocus(item: SavedTab, tabId: number) {
+  if (!chrome.scripting?.executeScript) return;
+  await ensureOffscreen();
+  const reply = await requestRefocus(item);
+  if (!reply) return;
+  await whenLoaded(tabId);
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['refocus.js'] });
+  await chrome.tabs.sendMessage(tabId, {
+    type: 'refocus',
+    nudge: reply.nudge,
+    route: reply.route,
+    note: item.note,
+    mission: item.mission,
+  });
+}
+
+chrome.runtime.onMessage.addListener((command: Command | { type: 'refocus-request' }, sender, respond) => {
+  if (sender.id !== chrome.runtime.id || !command || command.type === 'refocus-request') return;
   void enqueue(() => apply(command)).then(respond, (error: unknown) => {
     respond({ ok: false, error: error instanceof Error ? error.message : 'Something went wrong.' } satisfies Reply);
   });
