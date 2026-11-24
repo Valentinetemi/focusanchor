@@ -4,7 +4,7 @@
   "description": "Park distracting tabs with a reason and recover the context later.",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs tests/*.test.ts"
   },
   "type": "module",
   "dependencies": {
