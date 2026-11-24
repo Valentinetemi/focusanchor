@@ -1,23 +1,12 @@
-import { appCheckDebugToken, appCheckSiteKey, firebaseConfig } from '@firebase-config';
+import { firebaseConfig } from '@firebase-config';
 import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from 'firebase/ai';
 import { getApps, initializeApp } from 'firebase/app';
 import { askWithFallback, type HybridAnswer, type HybridMode, type HybridModel } from './ask';
 import { initAppCheck } from './appCheck';
 
+export { aiConfigured } from './configStatus';
+
 const CLOUD_MODEL = 'gemini-3.5-flash-lite';
-
-function debugReady(): boolean {
-  return appCheckDebugToken === true
-    || appCheckDebugToken === 'true'
-    || (typeof appCheckDebugToken === 'string' && appCheckDebugToken.trim() !== '');
-}
-
-export function aiConfigured(): boolean {
-  const key = firebaseConfig.apiKey.trim();
-  const project = firebaseConfig.projectId.trim();
-  if (!key || !project || key.includes('YOUR_') || project.includes('YOUR_')) return false;
-  return debugReady() || appCheckSiteKey.trim() !== '';
-}
 
 export async function createHybridModel(mode: HybridMode): Promise<HybridModel> {
   const app = getApps()[0] ?? initializeApp(firebaseConfig);

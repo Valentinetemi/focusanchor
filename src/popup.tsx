@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { aiConfigured, askHybrid } from './hybrid';
+import { aiConfigured } from './configStatus';
+import { askHybrid } from './hybrid';
 import { readPage } from './pageText';
 import {
   CLOUD_EXCERPT,
