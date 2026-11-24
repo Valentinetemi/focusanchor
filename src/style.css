@@ -235,6 +235,7 @@ input::placeholder, textarea::placeholder { color: var(--placeholder); }
 .route.cloud { color: #1d4f91; }
 .route-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .privacy, .summary-line, .mission-hint, .stats { color: var(--note); font-size: 12px; }
+.mission-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .suggest { justify-self: start; padding-inline: 12px; }
 .row-menu { position: relative; flex: 0 0 28px; width: 28px; max-width: 28px; min-width: 0; }
 .row-menu summary {

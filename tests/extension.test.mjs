@@ -817,6 +817,9 @@ await test('suggest explains that firebase config is required', async () => {
     button().click();
     await eventually(() => document.body.textContent.includes('firebase-config.js'));
     assert.match(document.body.textContent, /Cloud fallback sends a short excerpt/);
+    const popupSource = await readFile(new URL('../dist/popup.js', import.meta.url), 'utf8');
+    assert.match(popupSource, /Use mission/);
+    assert.match(popupSource, /Fits "/);
   } finally {
     dom.window.close();
     harness.cleanup();

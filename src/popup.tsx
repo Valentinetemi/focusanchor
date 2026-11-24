@@ -141,6 +141,25 @@ function missionGroups(state: State) {
   ];
 }
 
+function MissionHint({ draft, missions, saveMissionId, onUse }: {
+  draft: DraftIdea;
+  missions: State['missions'];
+  saveMissionId: string | null;
+  onUse: (id: string) => void;
+}) {
+  const suggested = missions.find((mission) => mission.id === draft.missionId);
+  if (!suggested) return null;
+  const using = saveMissionId === suggested.id;
+  return (
+    <p className="mission-hint">
+      <span>{`Fits "${suggested.text}".${draft.reason ? ` ${draft.reason}` : ''}`}</span>
+      <button type="button" className="quiet" disabled={using} onClick={() => onUse(suggested.id)}>
+        {using ? 'Using this mission' : 'Use mission'}
+      </button>
+    </p>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="empty">
@@ -449,6 +468,8 @@ function App() {
                 <button type="button" className="quiet" onClick={() => setDraft(null)}>Dismiss</button>
               </div>
               {draft.summary && <p className="summary-line">{draft.summary}</p>}
+              <MissionHint draft={draft} missions={state.missions} saveMissionId={saveMissionId}
+                onUse={(id) => { setSaveMissionId(id); setPickerOpen(true); }} />
               <label className="sr-only" htmlFor="suggestion">Suggested note</label>
               <textarea id="suggestion" rows={2} maxLength={NOTE_LIMIT} value={draftNote}
                 onChange={(event) => setDraftNote(event.target.value)} />
