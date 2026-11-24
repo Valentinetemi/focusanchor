@@ -829,6 +829,7 @@ await test('suggest explains that firebase config is required', async () => {
   try {
     const button = () => document.querySelector('.suggest');
     await eventually(() => button() && document.body.textContent.includes('Work'));
+    assert.match(document.body.textContent, /0 saved · 0 finished/);
     assert.match(document.body.textContent, /On-device keeps page text on this computer/);
     button().click();
     await eventually(() => document.body.textContent.includes('firebase-config.js'));

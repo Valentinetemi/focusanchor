@@ -306,6 +306,6 @@ input::placeholder, textarea::placeholder { color: var(--placeholder); }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 @media (forced-colors: active) {
-  .glass, .menu-panel { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+  .glass, .menu-panel, .suggestion, .route { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
   .solid-pill { background: Highlight; color: HighlightText; forced-color-adjust: none; }
 }

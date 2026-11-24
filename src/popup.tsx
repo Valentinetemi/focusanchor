@@ -402,6 +402,7 @@ function App() {
       </button>
     </form>
   );
+  const savedHere = tab && state ? state.parked.find((item) => item.url === tab.url) : undefined;
   const popupTabs = current
     ? state?.parked.filter((item) => {
         if (item.missionId) return item.missionId === current.id;
@@ -432,6 +433,7 @@ function App() {
               <span>{current?.text ?? 'No mission yet'}</span>
               <span className="chevron" aria-hidden="true">{pickerOpen ? '⌃' : '›'}</span>
             </button>
+            <p className="stats">{`${state.parked.length} saved · ${state.completedSessions} finished${current ? ` · ${current.tabSwitches} switches` : ''}`}</p>
             <div className={pickerOpen ? 'picker open' : 'picker'}>
               {orderedMissions.map((mission) => {
                 const timing = formatElapsed(mission.startedAt, now);
@@ -459,6 +461,7 @@ function App() {
 
           {!dashboard && (tab ? <form className="note-form" onSubmit={saveTab}>
             <p className="tab-title">{tab.title}</p>
+            {!draft && savedHere?.summary && <p className="summary-line">{`${savedHere.summary}${savedHere.draftRoute ? ` · ${routeName(savedHere.draftRoute)}` : ''}`}</p>}
             {drafting && <p className="muted" role="status">Reading this page…</p>}
             {draft && <div className="suggestion">
               <div className="suggestion-head">
