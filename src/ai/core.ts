@@ -177,14 +177,21 @@ function requiredText(value: unknown, field: string, maxLength: number): string 
 }
 
 export function parseSmartAnchor(text: string): SmartAnchor {
-  const value = parseObject(text);
-  const question = value.question == null || value.question === ''
+  return validateSmartAnchor(parseObject(text));
+}
+
+export function validateSmartAnchor(value: unknown): SmartAnchor {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AiError('malformed-output', 'The Smart Anchor did not match the expected structure.');
+  }
+  const object = value as Record<string, unknown>;
+  const question = object.question == null || object.question === ''
     ? null
-    : requiredText(value.question, 'question', MAX_ANCHOR_FIELD);
+    : requiredText(object.question, 'question', MAX_ANCHOR_FIELD);
   return {
-    whyItMatters: requiredText(value.whyItMatters, 'reason', MAX_ANCHOR_FIELD),
-    nextAction: requiredText(value.nextAction, 'next action', MAX_ANCHOR_FIELD),
-    contextNote: requiredText(value.contextNote, 'context note', 240),
+    whyItMatters: requiredText(object.whyItMatters, 'reason', MAX_ANCHOR_FIELD),
+    nextAction: requiredText(object.nextAction, 'next action', MAX_ANCHOR_FIELD),
+    contextNote: requiredText(object.contextNote, 'context note', 240),
     question,
   };
 }

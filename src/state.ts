@@ -1,3 +1,6 @@
+import { validateSmartAnchor } from './ai/core';
+import type { SmartAnchor } from './ai/core';
+
 export const STATE_KEY = 'focusAnchor';
 export const MISSION_LIMIT = 100;
 export const NOTE_LIMIT = 240;
@@ -19,6 +22,7 @@ export interface SavedTab {
   missionId: string | null;
   mission: string | null;
   status: 'kept-open' | 'closed';
+  anchor?: SmartAnchor;
 }
 
 export interface State {
@@ -34,7 +38,7 @@ export type Command =
   | { type: 'start'; text: string; id?: string }
   | { type: 'finish'; id?: string }
   | { type: 'activate'; id: string }
-  | { type: 'save'; tabId: number; url: string; note: string; close: boolean; missionId?: string | null }
+  | { type: 'save'; tabId: number; url: string; note: string; close: boolean; missionId?: string | null; anchor?: SmartAnchor | null }
   | { type: 'open'; id: string }
   | { type: 'remove'; id: string };
 
@@ -107,6 +111,15 @@ function readMission(value: RawMission, fallbackId: string): Mission | null {
   };
 }
 
+function readAnchor(value: unknown): SmartAnchor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return validateSmartAnchor(value);
+  } catch {
+    return undefined;
+  }
+}
+
 export function normalizeState(value: unknown): State {
   if (!value || typeof value !== 'object') return initialState;
   const stored = value as RawState;
@@ -144,6 +157,7 @@ export function normalizeState(value: unknown): State {
         const matches = missions.filter((mission) => mission.text === missionText);
         if (matches.length === 1) missionId = matches[0].id;
       }
+      const anchor = readAnchor(item.anchor);
       return {
         id: item.id!,
         title: item.title!,
@@ -152,6 +166,7 @@ export function normalizeState(value: unknown): State {
         missionId,
         mission: missionText ?? missions.find((mission) => mission.id === missionId)?.text ?? null,
         status: item.status === 'kept-open' ? 'kept-open' : 'closed',
+        ...(anchor ? { anchor } : {}),
       };
     }),
   };
