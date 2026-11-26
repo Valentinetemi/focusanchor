@@ -4,7 +4,8 @@ export default defineConfig({
   base: './',
   build: {
     rollupOptions: {
-      input: { popup: 'index.html', background: 'src/background.ts' },
+      preserveEntrySignatures: 'strict',
+      input: { popup: 'index.html', background: 'src/background.ts', aiCore: 'src/ai/core.ts' },
       output: { entryFileNames: '[name].js' },
     },
   },
