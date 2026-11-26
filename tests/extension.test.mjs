@@ -23,6 +23,9 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   assert.ok(manifest.permissions.includes('favicon'));
   assert.match(popupBundle.source, /Save note & keep open/);
   assert.match(popupBundle.source, /Save note & close tab/);
+  assert.match(popupBundle.source, /Create Smart Anchor/);
+  assert.match(popupBundle.source, /Create restart brief/);
+  assert.match(popupBundle.source, /Device Only never sends this task to the cloud/);
   for (const size of [16, 32, 48, 128]) {
     const relative = `icons/icon${size}.png`;
     assert.equal(manifest.icons[String(size)], relative);
@@ -161,8 +164,14 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   await eventually(() => activeStored().tabSwitches === 1);
 
   const firstNote = 'Read the examples after submitting';
+  const anchor = {
+    whyItMatters: 'The examples support the submission.',
+    nextAction: 'Compare the second example with the draft.',
+    contextNote: firstNote,
+    question: 'Does the draft explain the tradeoff?',
+  };
   assert.equal((await send({
-    type: 'save', tabId: 2, url: keptTab.url, note: firstNote, close: false,
+    type: 'save', tabId: 2, url: keptTab.url, note: firstNote, close: false, anchor,
   })).ok, true);
   assert.equal(tabs.has(2), true);
   assert.equal(stored.focusAnchor.parked.length, 1);
@@ -174,7 +183,19 @@ await test('notes can keep tabs open, close safely, update, and open without dup
     missionId: activeStored().id,
     mission: 'Finish my submission',
     status: 'kept-open',
+    anchor,
   });
+
+  const invalidAnchor = await send({
+    type: 'save',
+    tabId: 2,
+    url: keptTab.url,
+    note: firstNote,
+    close: false,
+    anchor: { ...anchor, contextNote: 'x'.repeat(241) },
+  });
+  assert.equal(invalidAnchor.ok, false);
+  assert.deepEqual(stored.focusAnchor.parked[0].anchor, anchor);
 
   const originalId = stored.focusAnchor.parked[0].id;
   const updatedNote = 'Use the second example in the write-up';
@@ -185,6 +206,11 @@ await test('notes can keep tabs open, close safely, update, and open without dup
   assert.equal(stored.focusAnchor.parked[0].id, originalId);
   assert.equal(stored.focusAnchor.parked[0].note, updatedNote);
   assert.equal(stored.focusAnchor.parked[0].mission, 'Finish my submission');
+  assert.deepEqual(stored.focusAnchor.parked[0].anchor, anchor);
+  assert.equal((await send({
+    type: 'save', tabId: 2, url: keptTab.url, note: updatedNote, close: false, anchor: null,
+  })).ok, true);
+  assert.equal(stored.focusAnchor.parked[0].anchor, undefined);
 
   activate(4);
   const closeCommand = {
@@ -675,6 +701,52 @@ async function renderPopup(search, seed) {
   await import(new URL(`${popupScript}${search}`, dist));
   return { harness, dom };
 }
+
+await test('Smart Anchor controls default to device-only and gate cloud fallback on consent', async () => {
+  const anchor = {
+    whyItMatters: 'This page has the examples needed for the mission.',
+    nextAction: 'Compare the examples with the current draft.',
+    contextNote: 'Use the second example in the draft.',
+    question: null,
+  };
+  const { harness, dom } = await renderPopup('?smart-anchor-controls=1', {
+    missions: [{ id: 'm1', text: 'Finish the draft', startedAt: 10, activatedAt: 10, tabSwitches: 0, lastTabId: 1 }],
+    activeMissionId: 'm1',
+    parked: [{
+      id: 'saved-work',
+      title: 'Work',
+      url: 'https://example.com/work',
+      note: anchor.contextNote,
+      missionId: 'm1',
+      mission: 'Finish the draft',
+      status: 'kept-open',
+      anchor,
+    }],
+    completedSessions: 0,
+  });
+  try {
+    await eventually(() => document.querySelector('#anchor-ai-mode'));
+    const mode = document.querySelector('#anchor-ai-mode');
+    const generate = () => [...document.querySelectorAll('button')]
+      .find((button) => button.textContent.includes('Smart Anchor'));
+    assert.equal(mode.value, 'device-only');
+    assert.match(document.body.textContent, /Device Only never sends this task to the cloud/);
+    assert.match(document.body.textContent, /Saved Smart Anchor/);
+    assert.equal(generate().disabled, false);
+
+    const selectSetter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set;
+    selectSetter.call(mode, 'hybrid');
+    mode.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await eventually(() => document.querySelector('.consent-check input'));
+    assert.match(document.body.textContent, /Current mission, Page title, Existing note/);
+    assert.equal(generate().disabled, true);
+    document.querySelector('.consent-check input').click();
+    await eventually(() => generate().disabled === false);
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
 
 await test('the save mission picker follows the active mission and drops a removed one', async () => {
   const mission = (id, text, activatedAt) => ({

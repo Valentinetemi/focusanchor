@@ -32,6 +32,17 @@ test('structured Smart Anchor responses are validated', () => {
     contextNote: 'Use the second example.',
     question: 'Does this cover offline behavior?',
   });
+  assert.deepEqual(core.validateSmartAnchor({
+    whyItMatters: 'Stored reason',
+    nextAction: 'Stored action',
+    contextNote: 'Stored note',
+    question: null,
+  }), {
+    whyItMatters: 'Stored reason',
+    nextAction: 'Stored action',
+    contextNote: 'Stored note',
+    question: null,
+  });
 });
 
 test('malformed model output is rejected without a partial anchor', () => {
@@ -43,6 +54,32 @@ test('malformed model output is rejected without a partial anchor', () => {
     () => core.parseSmartAnchor('certainly not JSON'),
     (error) => error instanceof core.AiError && error.code === 'malformed-output',
   );
+  assert.throws(
+    () => core.validateSmartAnchor({
+      whyItMatters: 'Reason',
+      nextAction: 'Action',
+      contextNote: 'x'.repeat(241),
+      question: null,
+    }),
+    (error) => error instanceof core.AiError && error.code === 'malformed-output',
+  );
+});
+
+test('cloud disclosures name only the user data included in each prompt', () => {
+  assert.deepEqual(core.smartAnchorCloudFields({
+    mission: 'Ship the feature',
+    pageTitle: 'Reference',
+    existingNote: '',
+  }), ['Current mission', 'Page title']);
+  assert.deepEqual(core.smartAnchorCloudFields({
+    mission: 'Ship the feature',
+    pageTitle: 'Reference',
+    existingNote: 'Remember this',
+    selectedText: 'A selected paragraph',
+  }), ['Current mission', 'Page title', 'Existing note', 'Selected page text']);
+  assert.deepEqual(core.restartCloudFields(), [
+    'Mission text', 'Saved tab titles', 'Saved notes', 'Accepted Smart Anchor fields',
+  ]);
 });
 
 test('Device Only stops before generation when the device model is unavailable', async () => {
