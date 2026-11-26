@@ -7,6 +7,9 @@
     "test": "npm run build && node --test tests/*.test.mjs"
   },
   "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "dependencies": {
     "firebase": "^13.4.0",
     "react": "^19.3.1",
