@@ -1,5 +1,6 @@
 import { activeMission, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
 import type { Command, Mission, Reply, SavedTab, State } from './state';
+import { validateSmartAnchor } from './ai/core';
 
 const CLOSED_TAB_ERROR = 'This tab is no longer open. Open FocusAnchor again to save the current page.';
 const TAB_KEY = 'focusAnchorTabs';
@@ -189,6 +190,11 @@ async function apply(command: Command): Promise<Reply> {
       }
       const existing = state.parked.find((item) => item.url === tab.url);
       const belongs = chosenMission(state, existing, command.missionId);
+      const anchor = command.anchor === undefined
+        ? existing?.anchor
+        : command.anchor === null
+          ? undefined
+          : validateSmartAnchor(command.anchor);
       const savedTab: SavedTab = {
         id: existing?.id ?? crypto.randomUUID(),
         title: tab.title || new URL(tab.url).hostname,
@@ -197,6 +203,7 @@ async function apply(command: Command): Promise<Reply> {
         missionId: belongs.missionId,
         mission: belongs.mission,
         status: 'kept-open',
+        ...(anchor ? { anchor } : {}),
       };
       await save({
         ...state,

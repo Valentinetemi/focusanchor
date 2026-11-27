@@ -3,10 +3,34 @@ import type { FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { activeMission, formatElapsed, isWebUrl, MISSION_LIMIT, normalizeState, NOTE_LIMIT, STATE_KEY } from './state';
 import type { Command, Reply, SavedTab, State } from './state';
+import {
+  buildRestartPrompt,
+  buildSmartAnchorPrompt,
+  normalizeAiError,
+  parseRestartBrief,
+  parseSmartAnchor,
+  restartCloudFields,
+  runAiTask,
+  SELECTED_TEXT_LIMIT,
+  smartAnchorCloudFields,
+} from './ai/core';
+import type { AiPhase, AiTask, InferenceMode, InferenceSource, RestartBrief, SmartAnchor } from './ai/core';
 import './style.css';
 
 const dashboard = new URLSearchParams(location.search).has('dashboard');
 type ActiveTab = { id: number; url: string; title: string };
+type RestartResult = RestartBrief & { item: SavedTab; source: InferenceSource };
+
+const phaseLabels: Record<AiPhase, string> = {
+  'checking-device': 'Checking on-device AI…',
+  'initializing-device': 'Preparing the on-device model…',
+  generating: 'Creating a focused draft…',
+  validating: 'Checking the response…',
+};
+
+function sourceLabel(source: InferenceSource): string {
+  return source === 'on-device' ? 'Created on device' : 'Created with cloud fallback';
+}
 
 function domainOf(url: string): string {
   try {
@@ -76,6 +100,7 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
       <div className="tab-copy">
         <p className="tab-title">{item.title}</p>
         <p className="note-preview">{item.note}</p>
+        {item.anchor && <span className="anchor-badge">Smart Anchor</span>}
       </div>
       <details className="row-menu">
         <summary aria-label={`Actions for ${item.title}`}>⋯</summary>
@@ -83,6 +108,11 @@ function SavedCard({ item, busy, onOpen, onRemove }: {
           <p className="domain">{domain}</p>
           <p className={`saved-status ${item.status}`}>{item.status === 'closed' ? 'Saved & closed' : 'Kept open'}</p>
           <p>{`Original mission: ${item.mission ?? 'None'}`}</p>
+          {item.anchor && <div className="saved-anchor">
+            <p><strong>Why:</strong> {item.anchor.whyItMatters}</p>
+            <p><strong>Next:</strong> {item.anchor.nextAction}</p>
+            {item.anchor.question && <p><strong>Question:</strong> {item.anchor.question}</p>}
+          </div>}
           <button type="button" className="reopen" disabled={busy} aria-label={`Open ${item.title}`} onClick={onOpen}>Open</button>
           <button type="button" className="quiet" disabled={busy} aria-label={`Remove ${item.title}`} onClick={onRemove}>Remove</button>
         </div>
@@ -142,6 +172,16 @@ function App() {
   const [saveMissionId, setSaveMissionId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [selectedText, setSelectedText] = useState('');
+  const [smartAnchor, setSmartAnchor] = useState<SmartAnchor | null>(null);
+  const [anchorSource, setAnchorSource] = useState<InferenceSource | null>(null);
+  const [restartResult, setRestartResult] = useState<RestartResult | null>(null);
+  const [aiMode, setAiMode] = useState<InferenceMode>('device-only');
+  const [cloudConsent, setCloudConsent] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiPhase, setAiPhase] = useState<AiPhase | null>(null);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiMessage, setAiMessage] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -150,6 +190,7 @@ function App() {
   const activeMissionSeen = useRef<string | null>(null);
   const startId = useRef<string | null>(null);
   const tabRef = useRef<ActiveTab | null>(null);
+  const aiAbort = useRef<AbortController | null>(null);
   tabRef.current = tab;
 
   useEffect(() => {
@@ -171,6 +212,9 @@ function App() {
       missionLoadedFor.current = null;
       setTab(null);
       setNote('');
+      setSelectedText('');
+      setSmartAnchor(null);
+      setAnchorSource(null);
       void readActiveTab(tabId).then((next) => { if (active) setTab(next); });
     };
     if (!dashboard) {
@@ -193,9 +237,20 @@ function App() {
 
   useEffect(() => {
     if (!state || !tab || noteLoadedFor.current === tab.url) return;
-    setNote(state.parked.find((item) => item.url === tab.url)?.note ?? '');
+    const saved = state.parked.find((item) => item.url === tab.url);
+    setNote(saved?.note ?? '');
+    setSmartAnchor(saved?.anchor ?? null);
+    setAnchorSource(null);
+    setSelectedText('');
+    setAiMessage('');
     noteLoadedFor.current = tab.url;
   }, [state, tab]);
+
+  useEffect(() => () => aiAbort.current?.abort(), []);
+
+  useEffect(() => {
+    setRestartResult(null);
+  }, [state?.activeMissionId]);
 
   useEffect(() => {
     if (!state) return;
@@ -225,6 +280,9 @@ function App() {
           noteLoadedFor.current = null;
           missionLoadedFor.current = null;
           setNote('');
+          setSelectedText('');
+          setSmartAnchor(null);
+          setAnchorSource(null);
           setTab(await readActiveTab(command.tabId));
         }
         return;
@@ -239,6 +297,9 @@ function App() {
           noteLoadedFor.current = null;
           missionLoadedFor.current = null;
           setNote('');
+          setSelectedText('');
+          setSmartAnchor(null);
+          setAnchorSource(null);
           setTab(await readActiveTab(command.tabId));
         }
       }
@@ -272,7 +333,92 @@ function App() {
       note,
       close: submitter?.value === 'close',
       ...(missionId ? { missionId } : {}),
+      anchor: smartAnchor,
     });
+  }
+
+  async function executeAi<T>(task: AiTask, prompt: string, parse: (text: string) => T) {
+    aiAbort.current?.abort();
+    const controller = new AbortController();
+    aiAbort.current = controller;
+    setAiBusy(true);
+    setAiMessage('');
+    setAiPhase('checking-device');
+    setAiProgress(0);
+    try {
+      const { getFirebaseHybridProvider } = await import('./ai/firebase');
+      return await runAiTask({
+        provider: getFirebaseHybridProvider(),
+        task,
+        prompt,
+        mode: aiMode,
+        cloudConsent,
+        parse,
+        signal: controller.signal,
+        onPhase: setAiPhase,
+        onProgress: setAiProgress,
+      });
+    } catch (error) {
+      const normalized = normalizeAiError(error);
+      if (normalized.code !== 'cancelled') setAiMessage(normalized.message);
+      return null;
+    } finally {
+      if (aiAbort.current === controller) {
+        aiAbort.current = null;
+        setAiBusy(false);
+        setAiPhase(null);
+      }
+    }
+  }
+
+  async function createSmartAnchor() {
+    if (!state || !tab) return;
+    const mission = state.missions.find((item) => item.id === saveMissionId)
+      ?? state.missions.find((item) => item.id === state.activeMissionId);
+    if (!mission) {
+      setAiMessage('Start or select a mission before creating a Smart Anchor.');
+      return;
+    }
+    const input = {
+      mission: mission.text,
+      pageTitle: tab.title,
+      existingNote: note,
+      ...(selectedText.trim() ? { selectedText } : {}),
+    };
+    const result = await executeAi('smart-anchor', buildSmartAnchorPrompt(input), parseSmartAnchor);
+    if (!result) return;
+    setSmartAnchor(result.value);
+    setAnchorSource(result.source);
+    setNote(result.value.contextNote);
+    setAiMessage(`${sourceLabel(result.source)}. Review the Smart Anchor, then save the tab.`);
+  }
+
+  async function createRestartBrief(items: SavedTab[], mission: string) {
+    const referenced = items.map((item, index) => ({
+      ref: `A${index + 1}`,
+      title: item.title,
+      note: item.note,
+      ...(item.anchor ? { anchor: item.anchor } : {}),
+    }));
+    const allowedRefs = referenced.map((item) => item.ref);
+    const result = await executeAi(
+      'restart-brief',
+      buildRestartPrompt({ mission, tabs: referenced }),
+      (text) => parseRestartBrief(text, allowedRefs),
+    );
+    if (!result) return;
+    const index = allowedRefs.indexOf(result.value.firstTabRef);
+    const item = items[index];
+    if (!item) {
+      setAiMessage('The restart brief selected an unavailable tab. Try again.');
+      return;
+    }
+    setRestartResult({ ...result.value, item, source: result.source });
+    setAiMessage(`${sourceLabel(result.source)}. No saved tab or note was changed.`);
+  }
+
+  function cancelAi() {
+    aiAbort.current?.abort();
   }
 
   function openDashboard() {
@@ -309,6 +455,43 @@ function App() {
         return state.missions.filter((mission) => mission.text === item.mission).length === 1;
       }) ?? []
     : state?.parked ?? [];
+  const selectedMission = state?.missions.find((item) => item.id === saveMissionId) ?? current;
+  const cloudFields = dashboard
+    ? restartCloudFields()
+    : smartAnchorCloudFields({
+        mission: selectedMission?.text ?? '',
+        pageTitle: tab?.title ?? '',
+        existingNote: note,
+        ...(selectedText.trim() ? { selectedText } : {}),
+      });
+  const needsCloudConsent = aiMode === 'hybrid' && !cloudConsent;
+  const controlId = dashboard ? 'restart-ai-mode' : 'anchor-ai-mode';
+  const aiControls = <div className="ai-controls">
+    <label htmlFor={controlId}>AI mode</label>
+    <select id={controlId} value={aiMode} disabled={aiBusy}
+      onChange={(event) => setAiMode(event.target.value as InferenceMode)}>
+      <option value="device-only">Device only</option>
+      <option value="hybrid">Prefer device, allow cloud fallback</option>
+    </select>
+    {aiMode === 'hybrid' ? <>
+      <p className="privacy-copy">If on-device AI is unavailable, cloud fallback sends only: {cloudFields.join(', ')}.</p>
+      <label className="consent-check">
+        <input type="checkbox" checked={cloudConsent} disabled={aiBusy}
+          onChange={(event) => setCloudConsent(event.target.checked)} />
+        <span>I allow this data to be sent to Firebase AI for this session.</span>
+      </label>
+    </> : <p className="privacy-copy">Device Only never sends this task to the cloud.</p>}
+  </div>;
+  const aiStatus = <>
+    {aiBusy && aiPhase && <div className="ai-running" role="status">
+      <div>
+        <p>{phaseLabels[aiPhase]}</p>
+        {aiPhase === 'initializing-device' && <progress max="1" value={aiProgress} aria-label="On-device model download progress" />}
+      </div>
+      <button type="button" className="quiet" onClick={cancelAi}>Cancel</button>
+    </div>}
+    {aiMessage && <p className="ai-message" role="status">{aiMessage}</p>}
+  </>;
 
   return (
     <main className={dashboard ? 'dashboard' : 'popup'}>
@@ -361,14 +544,70 @@ function App() {
             <p className="tab-title">{tab.title}</p>
             <label className="sr-only" htmlFor="note">Note for this tab</label>
             <textarea id="note" rows={2} maxLength={NOTE_LIMIT} value={note}
-              onChange={(event) => setNote(event.target.value)} required placeholder="Note for this tab" />
+              onChange={(event) => {
+                setNote(event.target.value);
+                setSmartAnchor(null);
+                setAnchorSource(null);
+              }} required placeholder="Note for this tab" />
+            <details className="ai-context">
+              <summary>Add selected page text</summary>
+              <label htmlFor="selected-text">Paste only the text that should inform this anchor</label>
+              <textarea id="selected-text" rows={3} maxLength={SELECTED_TEXT_LIMIT} value={selectedText}
+                onChange={(event) => setSelectedText(event.target.value)} placeholder="Optional selected text" />
+            </details>
+            <section className="ai-panel" aria-labelledby="smart-anchor-heading">
+              <div className="ai-heading">
+                <div>
+                  <h2 id="smart-anchor-heading">Smart Anchor</h2>
+                  <p>Turn this page into a concrete reason and next action.</p>
+                </div>
+                <span aria-hidden="true">✦</span>
+              </div>
+              {aiControls}
+              <button type="button" className="ai-button" disabled={aiBusy || !selectedMission || needsCloudConsent}
+                onClick={() => void createSmartAnchor()}>
+                {smartAnchor ? 'Regenerate Smart Anchor' : 'Create Smart Anchor'}
+              </button>
+              {aiStatus}
+              {smartAnchor && <div className="anchor-preview">
+                <p className="anchor-source">{anchorSource ? sourceLabel(anchorSource) : 'Saved Smart Anchor'}</p>
+                <p><strong>Why it matters</strong>{smartAnchor.whyItMatters}</p>
+                <p><strong>Next action</strong>{smartAnchor.nextAction}</p>
+                <p><strong>Context note</strong>{smartAnchor.contextNote}</p>
+                {smartAnchor.question && <p><strong>Question</strong>{smartAnchor.question}</p>}
+              </div>}
+            </section>
             <div className="save-actions">
               <button type="submit" className="glass-pill" name="save-action" value="keep-open"
-                aria-label="Save note & keep open" disabled={busy || !note.trim()}>Keep open</button>
+                aria-label="Save note & keep open" disabled={busy || aiBusy || !note.trim()}>Keep open</button>
               <button type="submit" className="solid-pill" name="save-action" value="close"
-                aria-label="Save note & close tab" disabled={busy || !note.trim()}>Save &amp; close</button>
+                aria-label="Save note & close tab" disabled={busy || aiBusy || !note.trim()}>Save &amp; close</button>
             </div>
           </form> : <p className="muted">Open FocusAnchor from a website to save its tab.</p>)}
+
+          {dashboard && current && popupTabs.length > 0 && <section className="ai-panel restart-panel" aria-labelledby="restart-heading">
+            <div className="ai-heading">
+              <div>
+                <h2 id="restart-heading">Restart brief</h2>
+                <p>Choose the most useful saved tab and a grounded next step.</p>
+              </div>
+              <span aria-hidden="true">↗</span>
+            </div>
+            {aiControls}
+            <button type="button" className="ai-button" disabled={aiBusy || needsCloudConsent}
+              onClick={() => void createRestartBrief(popupTabs, current.text)}>
+              {restartResult ? 'Regenerate restart brief' : 'Create restart brief'}
+            </button>
+            {aiStatus}
+            {restartResult && <div className="anchor-preview restart-preview">
+              <p className="anchor-source">{sourceLabel(restartResult.source)}</p>
+              <p><strong>Open first</strong>{restartResult.item.title}</p>
+              <p><strong>Why</strong>{restartResult.firstTabReason}</p>
+              <p><strong>Next action</strong>{restartResult.nextAction}</p>
+              <button type="button" className="solid-pill" disabled={busy}
+                onClick={() => void send({ type: 'open', id: restartResult.item.id })}>Open recommended tab</button>
+            </div>}
+          </section>}
 
           <section className="library" aria-labelledby="library-heading">
             <h2 id="library-heading" className="sr-only">Saved tabs</h2>
